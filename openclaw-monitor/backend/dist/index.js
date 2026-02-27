@@ -65,7 +65,9 @@ async function getSystemInfo() {
 // 获取 OpenClaw 版本
 async function getOpenClawVersion() {
     try {
-        const { stdout } = await execAsync('openclaw --version 2>&1 || echo "unknown"');
+        const { stdout } = await execAsync('openclaw --version 2>&1 || echo "unknown"', {
+            cwd: '/home/codespace/.openclaw/workspace'
+        });
         return stdout.trim();
     }
     catch {
@@ -93,15 +95,69 @@ async function getGatewayStatus() {
         });
     });
 }
+// 简单的英中翻译字典（技术术语）
+function translateReleaseNotes(text) {
+    if (!text)
+        return '';
+    const translations = {
+        "What's Changed": '有什么变化',
+        'New Contributors': '新贡献者',
+        'Full Changelog': '完整更新日志',
+        'Breaking Changes': '重大变更',
+        'Features': '新功能',
+        'Bug Fixes': '错误修复',
+        'Performance Improvements': '性能改进',
+        'Documentation': '文档',
+        'Dependencies': '依赖项',
+        'Security': '安全性',
+        'Added': '新增',
+        'Fixed': '修复',
+        'Updated': '更新',
+        'Improved': '改进',
+        'Removed': '移除',
+        'Changed': '变更',
+        'Release': '发布',
+        'Version': '版本',
+        'by': '由',
+        'in': '在',
+        'Merge pull request': '合并拉取请求',
+        'merged': '已合并',
+        'commit': '提交',
+        'commits': '提交',
+        'file': '文件',
+        'files': '文件',
+        'add': '添加',
+        'update': '更新',
+        'fix': '修复',
+        'improve': '改进',
+        'refactor': '重构',
+        'test': '测试',
+        'docs': '文档',
+        'chore': '杂项',
+        'style': '样式',
+        'perf': '性能',
+        'ci': '持续集成',
+        'build': '构建',
+        'revert': '回滚'
+    };
+    let translated = text;
+    for (const [en, zh] of Object.entries(translations)) {
+        const regex = new RegExp(`\\b${en}\\b`, 'gi');
+        translated = translated.replace(regex, zh);
+    }
+    return translated;
+}
 // 获取 GitHub 最新版本和更新日志
 async function getLatestRelease() {
     try {
         const response = await fetch('https://api.github.com/repos/openclaw/openclaw/releases/latest');
         const data = await response.json();
+        const body = data.body || '';
         return {
             version: data.tag_name || 'unknown',
             publishedAt: data.published_at,
-            body: data.body || '',
+            body: body,
+            bodyZh: translateReleaseNotes(body),
             url: data.html_url
         };
     }
@@ -213,7 +269,9 @@ app.get('/api/version/latest', async (req, res) => {
 // 获取 Gateway 日志（最近 100 行）
 app.get('/api/logs', async (req, res) => {
     try {
-        const { stdout } = await execAsync('journalctl -u openclaw-gateway -n 100 --no-pager 2>/dev/null || echo "Logs not available via journalctl"');
+        const { stdout } = await execAsync('journalctl -u openclaw-gateway -n 100 --no-pager 2>/dev/null || echo "Logs not available via journalctl"', {
+            cwd: '/home/codespace/.openclaw/workspace'
+        });
         res.json({ logs: stdout });
     }
     catch (err) {
@@ -223,7 +281,9 @@ app.get('/api/logs', async (req, res) => {
 // 获取会话列表
 app.get('/api/sessions', async (req, res) => {
     try {
-        const { stdout } = await execAsync('openclaw sessions list --json 2>&1');
+        const { stdout } = await execAsync('openclaw sessions list --json 2>&1', {
+            cwd: '/home/codespace/.openclaw/workspace'
+        });
         const sessions = JSON.parse(stdout);
         res.json(sessions);
     }
@@ -234,7 +294,9 @@ app.get('/api/sessions', async (req, res) => {
 // 重启 Gateway
 app.post('/api/gateway/restart', async (req, res) => {
     try {
-        await execAsync('openclaw gateway restart 2>&1');
+        await execAsync('openclaw gateway restart 2>&1', {
+            cwd: '/home/codespace/.openclaw/workspace'
+        });
         res.json({ success: true, message: 'Gateway restart initiated' });
     }
     catch (err) {
@@ -244,7 +306,9 @@ app.post('/api/gateway/restart', async (req, res) => {
 // 更新 OpenClaw
 app.post('/api/update', async (req, res) => {
     try {
-        const { stdout } = await execAsync('openclaw update run 2>&1');
+        const { stdout } = await execAsync('openclaw update run 2>&1', {
+            cwd: '/home/codespace/.openclaw/workspace'
+        });
         res.json({ success: true, output: stdout });
     }
     catch (err) {

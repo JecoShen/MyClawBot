@@ -22,6 +22,7 @@ interface VersionInfo {
     version: string
     publishedAt: string
     body: string
+    bodyZh?: string
     url: string
   } | null
   updateAvailable: boolean
@@ -31,12 +32,43 @@ interface LogData {
   logs: string
 }
 
+interface RemoteInstance {
+  id: string
+  name: string
+  url: string
+  token?: string
+  status: 'online' | 'offline' | 'error'
+  error?: string
+  lastSeen?: number
+}
+
+interface NewInstanceForm {
+  id: string
+  name: string
+  url: string
+  token: string
+}
+
 function App() {
   const [localStatus, setLocalStatus] = useState<LocalStatus | null>(null)
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null)
   const [logs, setLogs] = useState<string>('')
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'overview' | 'logs' | 'update'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'instances' | 'logs' | 'update'>('overview')
+  const [instances, setInstances] = useState<RemoteInstance[]>([])
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newInstance, setNewInstance] = useState<NewInstanceForm>({ id: '', name: '', url: '', token: '' })
+
+  // 获取实例列表
+  const fetchInstances = async () => {
+    try {
+      const res = await fetch('/api/instances')
+      const data = await res.json()
+      setInstances(data)
+    } catch (err) {
+      console.error('Failed to fetch instances:', err)
+    }
+  }
 
   const fetchData = async () => {
     try {
@@ -58,6 +90,7 @@ function App() {
       console.error('Failed to fetch data:', err)
       setLoading(false)
     }
+    fetchInstances() // 同时获取实例列表
   }
 
   useEffect(() => {
@@ -65,6 +98,50 @@ function App() {
     const interval = setInterval(fetchData, 30000) // 30 秒刷新
     return () => clearInterval(interval)
   }, [])
+
+  // 添加实例
+  const handleAddInstance = async () => {
+    if (!newInstance.id || !newInstance.url) {
+      alert('ID 和 WebSocket 地址是必填项')
+      return
+    }
+    try {
+      await fetch('/api/instances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newInstance)
+      })
+      setNewInstance({ id: '', name: '', url: '', token: '' })
+      setShowAddForm(false)
+      fetchInstances()
+      alert('实例添加成功')
+    } catch (err) {
+      alert('添加失败：' + err)
+    }
+  }
+
+  // 删除实例
+  const handleDeleteInstance = async (id: string) => {
+    if (!confirm(`确定要删除实例 "${id}" 吗？`)) return
+    try {
+      await fetch(`/api/instances/${id}`, { method: 'DELETE' })
+      fetchInstances()
+      alert('实例已删除')
+    } catch (err) {
+      alert('删除失败：' + err)
+    }
+  }
+
+  // 刷新实例状态
+  const handleRefreshInstance = async (id: string) => {
+    try {
+      const res = await fetch(`/api/instances/${id}/status`)
+      const updated = await res.json()
+      setInstances(prev => prev.map(i => i.id === id ? updated : i))
+    } catch (err) {
+      alert('刷新失败：' + err)
+    }
+  }
 
   const handleRestart = async () => {
     if (!confirm('确定要重启 Gateway 吗？')) return
@@ -138,6 +215,16 @@ function App() {
             }`}
           >
             概览
+          </button>
+          <button
+            onClick={() => setActiveTab('instances')}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === 'instances'
+                ? 'border-b-2 border-blue-500 text-blue-400'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            实例管理
           </button>
           <button
             onClick={() => setActiveTab('logs')}
@@ -245,6 +332,130 @@ function App() {
           </div>
         )}
 
+        {activeTab === 'instances' && (
+          <div className="space-y-4">
+            {/* 添加实例按钮 */}
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold">远程 OpenClaw 实例</h3>
+              <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium transition-colors"
+              >
+                {showAddForm ? '取消添加' : '+ 添加实例'}
+              </button>
+            </div>
+
+            {/* 添加实例表单 */}
+            {showAddForm && (
+              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h4 className="font-medium mb-4">添加新实例</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">实例 ID *</label>
+                    <input
+                      type="text"
+                      value={newInstance.id}
+                      onChange={(e) => setNewInstance({ ...newInstance, id: e.target.value })}
+                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                      placeholder="例如：home-server"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">名称</label>
+                    <input
+                      type="text"
+                      value={newInstance.name}
+                      onChange={(e) => setNewInstance({ ...newInstance, name: e.target.value })}
+                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                      placeholder="例如：家里服务器"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm text-gray-400 mb-1">WebSocket 地址 *</label>
+                    <input
+                      type="text"
+                      value={newInstance.url}
+                      onChange={(e) => setNewInstance({ ...newInstance, url: e.target.value })}
+                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                      placeholder="例如：ws://192.168.1.100:18789"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm text-gray-400 mb-1">Gateway Token（可选）</label>
+                    <input
+                      type="text"
+                      value={newInstance.token}
+                      onChange={(e) => setNewInstance({ ...newInstance, token: e.target.value })}
+                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                      placeholder="如果 Gateway 配置了认证则填写"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={handleAddInstance}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm font-medium transition-colors"
+                  >
+                    确认添加
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 实例列表 */}
+            {instances.length === 0 ? (
+              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 text-center text-gray-400">
+                暂无远程实例，点击上方按钮添加
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {instances.map((instance) => (
+                  <div key={instance.id} className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h4 className="font-bold">{instance.name || instance.id}</h4>
+                        <p className="text-xs text-gray-400 font-mono mt-1">{instance.id}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        instance.status === 'online' 
+                          ? 'bg-green-900 text-green-300' 
+                          : instance.status === 'error'
+                          ? 'bg-yellow-900 text-yellow-300'
+                          : 'bg-red-900 text-red-300'
+                      }`}>
+                        {instance.status === 'online' ? '● 在线' : instance.status === 'error' ? '● 错误' : '● 离线'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 font-mono mb-4 break-all">{instance.url}</p>
+                    {instance.error && (
+                      <p className="text-xs text-red-400 mb-4">{instance.error}</p>
+                    )}
+                    {instance.lastSeen && (
+                      <p className="text-xs text-gray-500 mb-4">
+                        最后检查：{new Date(instance.lastSeen).toLocaleString('zh-CN')}
+                      </p>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleRefreshInstance(instance.id)}
+                        className="flex-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition-colors"
+                      >
+                        刷新状态
+                      </button>
+                      <button
+                        onClick={() => handleDeleteInstance(instance.id)}
+                        className="flex-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-xs font-medium transition-colors"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'logs' && (
           <div className="bg-gray-800 rounded-lg border border-gray-700">
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
@@ -298,7 +509,7 @@ function App() {
                 <h3 className="text-lg font-bold mb-4">更新日志</h3>
                 <div className="prose prose-invert max-w-none">
                   <pre className="whitespace-pre-wrap text-sm text-gray-300">
-                    {versionInfo.latest.body}
+                    {versionInfo.latest.bodyZh || versionInfo.latest.body}
                   </pre>
                 </div>
               </div>
