@@ -22,7 +22,6 @@ interface VersionInfo {
     version: string
     publishedAt: string
     body: string
-    bodyZh?: string
     url: string
   } | null
   updateAvailable: boolean
@@ -508,8 +507,8 @@ function App() {
               <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
                 <h3 className="text-lg font-bold mb-4">更新日志</h3>
                 <div className="prose prose-invert max-w-none">
-                  <pre className="whitespace-pre-wrap text-sm text-gray-300">
-                    {versionInfo.latest.bodyZh || versionInfo.latest.body}
+                  <pre className="whitespace-pre-wrap text-sm text-gray-300 font-mono">
+                    {versionInfo.latest.body}
                   </pre>
                 </div>
               </div>

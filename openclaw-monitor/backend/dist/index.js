@@ -95,66 +95,13 @@ async function getGatewayStatus() {
         });
     });
 }
-// 简单的英中翻译字典（技术术语）
-function translateReleaseNotes(text) {
-    if (!text)
-        return '';
-    const translations = {
-        "What's Changed": '有什么变化',
-        'New Contributors': '新贡献者',
-        'Full Changelog': '完整更新日志',
-        'Breaking Changes': '重大变更',
-        'Features': '新功能',
-        'Bug Fixes': '错误修复',
-        'Performance Improvements': '性能改进',
-        'Documentation': '文档',
-        'Dependencies': '依赖项',
-        'Security': '安全性',
-        'Added': '新增',
-        'Fixed': '修复',
-        'Updated': '更新',
-        'Improved': '改进',
-        'Removed': '移除',
-        'Changed': '变更',
-        'Release': '发布',
-        'Version': '版本',
-        'by': '由',
-        'in': '在',
-        'Merge pull request': '合并拉取请求',
-        'merged': '已合并',
-        'commit': '提交',
-        'commits': '提交',
-        'file': '文件',
-        'files': '文件',
-        'add': '添加',
-        'update': '更新',
-        'fix': '修复',
-        'improve': '改进',
-        'refactor': '重构',
-        'test': '测试',
-        'docs': '文档',
-        'chore': '杂项',
-        'style': '样式',
-        'perf': '性能',
-        'ci': '持续集成',
-        'build': '构建',
-        'revert': '回滚'
-    };
-    let translated = text;
-    for (const [en, zh] of Object.entries(translations)) {
-        const regex = new RegExp(`\\b${en}\\b`, 'gi');
-        translated = translated.replace(regex, zh);
-    }
-    return translated;
-}
-// 获取 GitHub 最新版本和更新日志
+// 获取 GitHub 最新版本和更新日志（简化版）
 async function getLatestRelease() {
     try {
         const headers = {
             'Accept': 'application/vnd.github+json',
             'User-Agent': 'OpenClaw-Monitor/1.0'
         };
-        // 如果配置了 GitHub Token，使用认证请求（更高限流）
         const githubToken = process.env.GITHUB_TOKEN;
         if (githubToken) {
             headers['Authorization'] = `Bearer ${githubToken}`;
@@ -163,36 +110,41 @@ async function getLatestRelease() {
         if (!response.ok) {
             if (response.status === 403) {
                 return {
-                    version: '检查中...',
+                    version: 'Rate Limited',
                     publishedAt: null,
-                    body: githubToken
-                        ? 'GitHub API 请求失败，请检查 Token 是否有效。'
-                        : 'GitHub API 请求限流。\n\n解决方法：\n1. 设置 GITHUB_TOKEN 环境变量\n2. 或直接访问：https://github.com/openclaw/openclaw/releases',
-                    bodyZh: githubToken
-                        ? 'GitHub API 请求失败，请检查 Token 是否有效。'
-                        : 'GitHub API 请求限流。\n\n解决方法：\n1. 设置 GITHUB_TOKEN 环境变量\n2. 或直接访问：https://github.com/openclaw/openclaw/releases',
+                    body: 'GitHub API rate limit exceeded. Set GITHUB_TOKEN env var or visit:\nhttps://github.com/openclaw/openclaw/releases',
                     url: 'https://github.com/openclaw/openclaw/releases'
                 };
             }
             throw new Error(`API error: ${response.status}`);
         }
         const data = await response.json();
-        const body = data.body || '';
+        const fullBody = data.body || '';
+        // 简化更新日志：只保留 "### Changes" 和 "### Fixes" 两部分
+        let simplifiedBody = fullBody;
+        const changesMatch = fullBody.match(/### Changes[\s\S]*?(?=###|$)/i);
+        const fixesMatch = fullBody.match(/### Fixes[\s\S]*?(?=###|$)/i);
+        if (changesMatch || fixesMatch) {
+            simplifiedBody = '';
+            if (changesMatch)
+                simplifiedBody += changesMatch[0].trim() + '\n\n';
+            if (fixesMatch)
+                simplifiedBody += fixesMatch[0].trim();
+            simplifiedBody = simplifiedBody.trim();
+        }
         return {
             version: data.tag_name || 'unknown',
             publishedAt: data.published_at,
-            body: body,
-            bodyZh: translateReleaseNotes(body),
+            body: simplifiedBody || fullBody,
             url: data.html_url
         };
     }
     catch (err) {
         console.error('Failed to fetch release:', err.message);
         return {
-            version: '获取失败',
+            version: 'Fetch Failed',
             publishedAt: null,
-            body: `无法获取最新版本信息：${err.message}`,
-            bodyZh: `无法获取最新版本信息：${err.message}`,
+            body: `Error: ${err.message}\n\nVisit: https://github.com/openclaw/openclaw/releases`,
             url: 'https://github.com/openclaw/openclaw/releases'
         };
     }
