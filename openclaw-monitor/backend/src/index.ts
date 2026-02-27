@@ -179,7 +179,36 @@ function translateReleaseNotes(text: string): string {
 // 获取 GitHub 最新版本和更新日志
 async function getLatestRelease() {
   try {
-    const response = await fetch('https://api.github.com/repos/openclaw/openclaw/releases/latest');
+    const headers: Record<string, string> = {
+      'Accept': 'application/vnd.github+json',
+      'User-Agent': 'OpenClaw-Monitor/1.0'
+    };
+    
+    // 如果配置了 GitHub Token，使用认证请求（更高限流）
+    const githubToken = process.env.GITHUB_TOKEN;
+    if (githubToken) {
+      headers['Authorization'] = `Bearer ${githubToken}`;
+    }
+    
+    const response = await fetch('https://api.github.com/repos/openclaw/openclaw/releases/latest', { headers });
+    
+    if (!response.ok) {
+      if (response.status === 403) {
+        return {
+          version: '检查中...',
+          publishedAt: null,
+          body: githubToken 
+            ? 'GitHub API 请求失败，请检查 Token 是否有效。'
+            : 'GitHub API 请求限流。\n\n解决方法：\n1. 设置 GITHUB_TOKEN 环境变量\n2. 或直接访问：https://github.com/openclaw/openclaw/releases',
+          bodyZh: githubToken 
+            ? 'GitHub API 请求失败，请检查 Token 是否有效。'
+            : 'GitHub API 请求限流。\n\n解决方法：\n1. 设置 GITHUB_TOKEN 环境变量\n2. 或直接访问：https://github.com/openclaw/openclaw/releases',
+          url: 'https://github.com/openclaw/openclaw/releases'
+        };
+      }
+      throw new Error(`API error: ${response.status}`);
+    }
+    
     const data = await response.json() as any;
     const body = data.body || '';
     return {
@@ -189,8 +218,15 @@ async function getLatestRelease() {
       bodyZh: translateReleaseNotes(body),
       url: data.html_url
     };
-  } catch {
-    return null;
+  } catch (err: any) {
+    console.error('Failed to fetch release:', err.message);
+    return {
+      version: '获取失败',
+      publishedAt: null,
+      body: `无法获取最新版本信息：${err.message}`,
+      bodyZh: `无法获取最新版本信息：${err.message}`,
+      url: 'https://github.com/openclaw/openclaw/releases'
+    };
   }
 }
 

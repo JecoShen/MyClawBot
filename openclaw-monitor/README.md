@@ -155,6 +155,26 @@ sudo certbot --nginx -d monitor.yourdomain.com
 |------|--------|------|
 | `PORT` | 3001 | 后端服务端口 |
 | `OPENCLAW_GATEWAY_TOKEN` | '' | Gateway 认证 Token |
+| `GITHUB_TOKEN` | '' | GitHub API Token（解决限流，获取更新日志） |
+
+### 获取 GitHub Token（可选）
+
+如果更新日志显示"API 请求限流"，可以配置 GitHub Token：
+
+1. 访问 https://github.com/settings/tokens
+2. 生成新 Token（无需任何权限，仅用于提高 API 限流）
+3. 启动时设置环境变量：
+
+```bash
+export GITHUB_TOKEN=your_token_here
+npm run start
+```
+
+或使用 PM2：
+
+```bash
+pm2 start backend/dist/index.js --name openclaw-monitor --env GITHUB_TOKEN=your_token_here
+```
 
 ### 添加远程实例
 
