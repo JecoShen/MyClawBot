@@ -116,7 +116,7 @@ function connectGateway(instance) {
         }
         const ws = new WebSocket(instance.url, {
             headers: instance.token ? { 'Authorization': `Bearer ${instance.token}` } : {},
-            handshakeTimeout: 5000
+            handshakeTimeout: 10000
         });
         instance.ws = ws;
         const timeout = setTimeout(() => {
