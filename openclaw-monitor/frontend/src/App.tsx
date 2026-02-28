@@ -16,6 +16,15 @@ interface LocalStatus {
   lastSeen: number
 }
 
+interface RemoteInstance {
+  id: string
+  name: string
+  url: string
+  status: 'online' | 'offline' | 'error'
+  error?: string
+  lastSeen?: number
+}
+
 interface VersionInfo {
   current: string
   latest: {
@@ -27,18 +36,12 @@ interface VersionInfo {
   updateAvailable: boolean
 }
 
-interface LogData {
-  logs: string
-}
-
-interface RemoteInstance {
-  id: string
-  name: string
-  url: string
-  token?: string
-  status: 'online' | 'offline' | 'error'
-  error?: string
-  lastSeen?: number
+interface OfficialLinks {
+  github: string
+  releases: string
+  docs: string
+  discord: string
+  clawhub: string
 }
 
 interface NewInstanceForm {
@@ -53,10 +56,11 @@ function App() {
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null)
   const [logs, setLogs] = useState<string>('')
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'overview' | 'instances' | 'logs' | 'update'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'instances' | 'logs' | 'update' | 'links'>('overview')
   const [instances, setInstances] = useState<RemoteInstance[]>([])
   const [showAddForm, setShowAddForm] = useState(false)
   const [newInstance, setNewInstance] = useState<NewInstanceForm>({ id: '', name: '', url: '', token: '' })
+  const [officialLinks, setOfficialLinks] = useState<OfficialLinks | null>(null)
 
   // 获取实例列表
   const fetchInstances = async () => {
@@ -71,25 +75,28 @@ function App() {
 
   const fetchData = async () => {
     try {
-      const [statusRes, versionRes, logsRes] = await Promise.all([
-        fetch('/api/status/local'),
+      const [statusRes, versionRes, logsRes, linksRes] = await Promise.all([
+        fetch('/api/status/all'),
         fetch('/api/version/latest'),
-        fetch('/api/logs')
+        fetch('/api/logs'),
+        fetch('/api/links')
       ])
       
       const status = await statusRes.json()
       const version = await versionRes.json()
-      const logsData = await logsRes.json() as LogData
+      const logsData = await logsRes.json()
+      const links = await linksRes.json()
       
-      setLocalStatus(status)
+      setLocalStatus(status.local)
+      setInstances(status.remote || [])
       setVersionInfo(version)
       setLogs(logsData.logs)
+      setOfficialLinks(links)
       setLoading(false)
     } catch (err) {
       console.error('Failed to fetch data:', err)
       setLoading(false)
     }
-    fetchInstances() // 同时获取实例列表
   }
 
   useEffect(() => {
@@ -171,29 +178,37 @@ function App() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-xl">🦞 加载中...</div>
+        <div className="text-xl animate-pulse">🦞 加载中...</div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-900">
+    <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700">
+      <header className="bg-gray-800 border-b border-gray-700 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-3xl">🦞</span>
               <div>
                 <h1 className="text-xl font-bold">OpenClaw 监控面板</h1>
-                <p className="text-sm text-gray-400">GitHub Codespaces 实例</p>
+                <p className="text-sm text-gray-400">{localStatus?.name || '监控中'}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
+              <a
+                href={officialLinks?.github}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-gray-400 hover:text-white transition-colors"
+              >
+                GitHub
+              </a>
               <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                 localStatus?.status === 'online' 
-                  ? 'bg-green-900 text-green-300' 
-                  : 'bg-red-900 text-red-300'
+                  ? 'bg-green-900/50 text-green-300 border border-green-700' 
+                  : 'bg-red-900/50 text-red-300 border border-red-700'
               }`}>
                 {localStatus?.status === 'online' ? '● 运行中' : '● 已离线'}
               </span>
@@ -204,150 +219,185 @@ function App() {
 
       {/* Tabs */}
       <div className="max-w-7xl mx-auto px-4 mt-6">
-        <div className="flex gap-2 border-b border-gray-700">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'overview'
-                ? 'border-b-2 border-blue-500 text-blue-400'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            概览
-          </button>
-          <button
-            onClick={() => setActiveTab('instances')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'instances'
-                ? 'border-b-2 border-blue-500 text-blue-400'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            实例管理
-          </button>
-          <button
-            onClick={() => setActiveTab('logs')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'logs'
-                ? 'border-b-2 border-blue-500 text-blue-400'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            日志
-          </button>
-          <button
-            onClick={() => setActiveTab('update')}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === 'update'
-                ? 'border-b-2 border-blue-500 text-blue-400'
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            更新
-          </button>
+        <div className="flex gap-2 border-b border-gray-700 overflow-x-auto">
+          {['overview', 'instances', 'logs', 'update', 'links'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab as any)}
+              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                activeTab === tab
+                  ? 'border-b-2 border-blue-500 text-blue-400'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {tab === 'overview' && '📊 概览'}
+              {tab === 'instances' && '💻 实例'}
+              {tab === 'logs' && '📋 日志'}
+              {tab === 'update' && '🔄 更新'}
+              {tab === 'links' && '🔗 官方'}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 py-6">
         {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* 版本卡片 */}
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-sm text-gray-400 mb-2">当前版本</h3>
-              <p className="text-2xl font-mono">{localStatus?.version || '未知'}</p>
-              {versionInfo?.updateAvailable && (
-                <span className="text-xs text-yellow-400 mt-2 block">
-                  有新版本可用：{versionInfo.latest?.version}
-                </span>
-              )}
-            </div>
+          <div className="space-y-6">
+            {/* 系统资源卡片 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* 版本卡片 */}
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">📦</span>
+                  <h3 className="text-sm text-gray-400">当前版本</h3>
+                </div>
+                <p className="text-2xl font-mono text-white">{localStatus?.version || '未知'}</p>
+                {versionInfo?.updateAvailable && (
+                  <span className="text-xs text-yellow-400 mt-2 block">
+                    ⚠️ 新版本：{versionInfo.latest?.version}
+                  </span>
+                )}
+              </div>
 
-            {/* CPU 卡片 */}
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-sm text-gray-400 mb-2">CPU</h3>
-              <p className="text-2xl font-bold">{localStatus?.system.cpu.cores} 核心</p>
-              <p className="text-sm text-gray-400 mt-1">使用率：{localStatus?.system.cpu.usage}%</p>
-            </div>
+              {/* CPU 卡片 */}
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">⚡</span>
+                  <h3 className="text-sm text-gray-400">CPU</h3>
+                </div>
+                <p className="text-2xl font-bold text-white">{localStatus?.system.cpu.cores} 核心</p>
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs text-gray-400 mb-1">
+                    <span>使用率</span>
+                    <span>{localStatus?.system.cpu.usage}%</span>
+                  </div>
+                  <div className="bg-gray-700 rounded-full h-2">
+                    <div 
+                      className="bg-blue-500 h-2 rounded-full transition-all"
+                      style={{ width: `${Math.min(localStatus?.system.cpu.usage || 0, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
 
-            {/* 内存卡片 */}
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-sm text-gray-400 mb-2">内存</h3>
-              <p className="text-2xl font-bold">{localStatus?.system.memory.percent}%</p>
-              <p className="text-sm text-gray-400 mt-1">
-                {localStatus?.system.memory.used}MB / {localStatus?.system.memory.total}MB
-              </p>
-              <div className="mt-2 bg-gray-700 rounded-full h-2">
-                <div 
-                  className="bg-blue-500 h-2 rounded-full transition-all"
-                  style={{ width: `${localStatus?.system.memory.percent || 0}%` }}
-                />
+              {/* 内存卡片 */}
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">🧠</span>
+                  <h3 className="text-sm text-gray-400">内存</h3>
+                </div>
+                <p className="text-2xl font-bold text-white">{localStatus?.system.memory.percent}%</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {localStatus?.system.memory.used}MB / {localStatus?.system.memory.total}MB
+                </p>
+                <div className="mt-2 bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-purple-500 h-2 rounded-full transition-all"
+                    style={{ width: `${Math.min(localStatus?.system.memory.percent || 0, 100)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* 磁盘卡片 */}
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">💾</span>
+                  <h3 className="text-sm text-gray-400">磁盘</h3>
+                </div>
+                <p className="text-2xl font-bold text-white">{localStatus?.system.disk.percent}%</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {localStatus?.system.disk.used} / {localStatus?.system.disk.total}
+                </p>
+                <div className="mt-2 bg-gray-700 rounded-full h-2">
+                  <div 
+                    className="bg-cyan-500 h-2 rounded-full transition-all"
+                    style={{ width: `${Math.min(localStatus?.system.disk.percent || 0, 100)}%` }}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* 磁盘卡片 */}
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-sm text-gray-400 mb-2">磁盘</h3>
-              <p className="text-2xl font-bold">{localStatus?.system.disk.percent}%</p>
-              <p className="text-sm text-gray-400 mt-1">
-                已用：{localStatus?.system.disk.used} / 总计：{localStatus?.system.disk.total}
-              </p>
-              <div className="mt-2 bg-gray-700 rounded-full h-2">
-                <div 
-                  className="bg-purple-500 h-2 rounded-full transition-all"
-                  style={{ width: `${localStatus?.system.disk.percent || 0}%` }}
-                />
+            {/* 运行时间和操作 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">⏱️</span>
+                  <h3 className="text-sm text-gray-400">运行时间</h3>
+                </div>
+                <p className="text-xl text-white">{localStatus?.system.uptime || '未知'}</p>
+                <p className="text-xs text-gray-500 mt-2">
+                  最后更新：{localStatus?.lastSeen ? new Date(localStatus.lastSeen).toLocaleString('zh-CN') : '未知'}
+                </p>
               </div>
-            </div>
 
-            {/* 运行时间 */}
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-sm text-gray-400 mb-2">运行时间</h3>
-              <p className="text-xl">{localStatus?.system.uptime || '未知'}</p>
-            </div>
-
-            {/* 最后更新 */}
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-sm text-gray-400 mb-2">最后更新</h3>
-              <p className="text-xl">
-                {localStatus?.lastSeen 
-                  ? new Date(localStatus.lastSeen).toLocaleString('zh-CN')
-                  : '未知'}
-              </p>
-            </div>
-
-            {/* 操作按钮 */}
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-sm text-gray-400 mb-4">快速操作</h3>
-              <div className="flex gap-2">
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-2xl">🎮</span>
+                  <h3 className="text-sm text-gray-400">快速操作</h3>
+                </div>
                 <button
                   onClick={handleRestart}
-                  className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded text-sm font-medium transition-colors"
+                  className="w-full px-4 py-3 bg-yellow-600/80 hover:bg-yellow-700 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
                 >
-                  重启 Gateway
+                  <span>🔄</span> 重启 Gateway
                 </button>
               </div>
             </div>
+
+            {/* 远程实例概览 */}
+            {instances.length > 0 && (
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🌐</span>
+                    <h3 className="text-lg font-bold">远程实例</h3>
+                  </div>
+                  <span className="text-sm text-gray-400">{instances.length} 个实例</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {instances.map((instance) => (
+                    <div key={instance.id} className="bg-gray-700/50 rounded-lg p-4 border border-gray-600">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium">{instance.name || instance.id}</h4>
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          instance.status === 'online' 
+                            ? 'bg-green-900/50 text-green-300' 
+                            : instance.status === 'error'
+                            ? 'bg-yellow-900/50 text-yellow-300'
+                            : 'bg-red-900/50 text-red-300'
+                        }`}>
+                          {instance.status === 'online' ? '●' : instance.status === 'error' ? '⚠' : '○'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 font-mono truncate">{instance.url}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'instances' && (
           <div className="space-y-4">
-            {/* 添加实例按钮 */}
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold">远程 OpenClaw 实例</h3>
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <span>💻</span> 远程 OpenClaw 实例
+              </h3>
               <button
                 onClick={() => setShowAddForm(!showAddForm)}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
               >
-                {showAddForm ? '取消添加' : '+ 添加实例'}
+                {showAddForm ? '✕ 取消' : '+ 添加实例'}
               </button>
             </div>
 
-            {/* 添加实例表单 */}
             {showAddForm && (
-              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <h4 className="font-medium mb-4">添加新实例</h4>
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+                <h4 className="font-medium mb-4 flex items-center gap-2">
+                  <span>➕</span> 添加新实例
+                </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">实例 ID *</label>
@@ -355,7 +405,7 @@ function App() {
                       type="text"
                       value={newInstance.id}
                       onChange={(e) => setNewInstance({ ...newInstance, id: e.target.value })}
-                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                       placeholder="例如：home-server"
                     />
                   </div>
@@ -365,7 +415,7 @@ function App() {
                       type="text"
                       value={newInstance.name}
                       onChange={(e) => setNewInstance({ ...newInstance, name: e.target.value })}
-                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                       placeholder="例如：家里服务器"
                     />
                   </div>
@@ -375,7 +425,7 @@ function App() {
                       type="text"
                       value={newInstance.url}
                       onChange={(e) => setNewInstance({ ...newInstance, url: e.target.value })}
-                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                       placeholder="例如：ws://192.168.1.100:18789"
                     />
                   </div>
@@ -385,49 +435,48 @@ function App() {
                       type="text"
                       value={newInstance.token}
                       onChange={(e) => setNewInstance({ ...newInstance, token: e.target.value })}
-                      className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500"
                       placeholder="如果 Gateway 配置了认证则填写"
                     />
                   </div>
                 </div>
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={handleAddInstance}
-                    className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded text-sm font-medium transition-colors"
-                  >
-                    确认添加
-                  </button>
-                </div>
+                <button
+                  onClick={handleAddInstance}
+                  className="mt-4 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition-colors"
+                >
+                  确认添加
+                </button>
               </div>
             )}
 
-            {/* 实例列表 */}
             {instances.length === 0 ? (
-              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 text-center text-gray-400">
-                暂无远程实例，点击上方按钮添加
+              <div className="bg-gray-800/50 rounded-xl p-12 border border-gray-700 text-center">
+                <span className="text-4xl mb-4 block">🌍</span>
+                <p className="text-gray-400">暂无远程实例</p>
+                <p className="text-sm text-gray-500 mt-2">点击上方按钮添加其他 OpenClaw 实例</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {instances.map((instance) => (
-                  <div key={instance.id} className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                  <div key={instance.id} className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
                     <div className="flex items-start justify-between mb-4">
                       <div>
-                        <h4 className="font-bold">{instance.name || instance.id}</h4>
+                        <h4 className="font-bold text-lg">{instance.name || instance.id}</h4>
                         <p className="text-xs text-gray-400 font-mono mt-1">{instance.id}</p>
                       </div>
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
                         instance.status === 'online' 
-                          ? 'bg-green-900 text-green-300' 
+                          ? 'bg-green-900/50 text-green-300 border border-green-700' 
                           : instance.status === 'error'
-                          ? 'bg-yellow-900 text-yellow-300'
-                          : 'bg-red-900 text-red-300'
+                          ? 'bg-yellow-900/50 text-yellow-300 border border-yellow-700'
+                          : 'bg-red-900/50 text-red-300 border border-red-700'
                       }`}>
-                        {instance.status === 'online' ? '● 在线' : instance.status === 'error' ? '● 错误' : '● 离线'}
+                        {instance.status === 'online' ? '● 在线' : instance.status === 'error' ? '⚠ 错误' : '○ 离线'}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-400 font-mono mb-4 break-all">{instance.url}</p>
+                    <p className="text-xs text-gray-400 font-mono mb-4 break-all bg-gray-900/50 rounded p-2">{instance.url}</p>
                     {instance.error && (
-                      <p className="text-xs text-red-400 mb-4">{instance.error}</p>
+                      <p className="text-xs text-red-400 mb-4 bg-red-900/20 rounded p-2">{instance.error}</p>
                     )}
                     {instance.lastSeen && (
                       <p className="text-xs text-gray-500 mb-4">
@@ -437,15 +486,15 @@ function App() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleRefreshInstance(instance.id)}
-                        className="flex-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition-colors"
+                        className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-medium transition-colors"
                       >
-                        刷新状态
+                        🔄 刷新
                       </button>
                       <button
                         onClick={() => handleDeleteInstance(instance.id)}
-                        className="flex-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-xs font-medium transition-colors"
+                        className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-xs font-medium transition-colors"
                       >
-                        删除
+                        🗑️ 删除
                       </button>
                     </div>
                   </div>
@@ -456,17 +505,19 @@ function App() {
         )}
 
         {activeTab === 'logs' && (
-          <div className="bg-gray-800 rounded-lg border border-gray-700">
+          <div className="bg-gray-800/50 rounded-xl border border-gray-700 backdrop-blur">
             <div className="flex items-center justify-between p-4 border-b border-gray-700">
-              <h3 className="font-medium">Gateway 日志（最近 100 行）</h3>
+              <h3 className="font-medium flex items-center gap-2">
+                <span>📋</span> Gateway 日志（最近 100 行）
+              </h3>
               <button
                 onClick={copyLogs}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium transition-colors"
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
               >
-                复制日志
+                <span>📋</span> 复制日志
               </button>
             </div>
-            <pre className="p-4 text-sm font-mono text-gray-300 overflow-auto max-h-[600px]">
+            <pre className="p-4 text-sm font-mono text-gray-300 overflow-auto max-h-[600px] bg-gray-900/50 rounded-b-xl">
               {logs || '暂无日志'}
             </pre>
           </div>
@@ -474,28 +525,32 @@ function App() {
 
         {activeTab === 'update' && (
           <div className="space-y-4">
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-lg font-bold mb-4">版本信息</h3>
+            <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <span>📦</span> 版本信息
+              </h3>
               <div className="space-y-3">
-                <div>
-                  <span className="text-gray-400">当前版本：</span>
-                  <span className="font-mono ml-2">{versionInfo?.current}</span>
+                <div className="flex justify-between py-2 border-b border-gray-700">
+                  <span className="text-gray-400">当前版本</span>
+                  <span className="font-mono">{versionInfo?.current}</span>
                 </div>
                 {versionInfo?.latest && (
                   <>
-                    <div>
-                      <span className="text-gray-400">最新版本：</span>
-                      <span className="font-mono ml-2">{versionInfo.latest.version}</span>
-                      {versionInfo.latest.publishedAt && (
-                        <span className="text-gray-400 text-sm ml-2">
-                          ({new Date(versionInfo.latest.publishedAt).toLocaleDateString('zh-CN')})
-                        </span>
-                      )}
+                    <div className="flex justify-between py-2 border-b border-gray-700">
+                      <span className="text-gray-400">最新版本</span>
+                      <span className="font-mono">
+                        {versionInfo.latest.version}
+                        {versionInfo.latest.publishedAt && (
+                          <span className="text-gray-500 text-sm ml-2">
+                            ({new Date(versionInfo.latest.publishedAt).toLocaleDateString('zh-CN')})
+                          </span>
+                        )}
+                      </span>
                     </div>
-                    <div>
-                      <span className="text-gray-400">更新可用：</span>
+                    <div className="flex justify-between py-2">
+                      <span className="text-gray-400">更新可用</span>
                       <span className={versionInfo.updateAvailable ? 'text-green-400' : 'text-gray-400'}>
-                        {versionInfo.updateAvailable ? '是' : '否'}
+                        {versionInfo.updateAvailable ? '✅ 是' : '❌ 否'}
                       </span>
                     </div>
                   </>
@@ -504,40 +559,114 @@ function App() {
             </div>
 
             {versionInfo?.latest?.body && (
-              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <h3 className="text-lg font-bold mb-4">更新日志</h3>
-                <div className="prose prose-invert max-w-none">
-                  <pre className="whitespace-pre-wrap text-sm text-gray-300 font-mono">
-                    {versionInfo.latest.body}
-                  </pre>
-                </div>
+              <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                  <span>📝</span> 更新日志
+                </h3>
+                <pre className="whitespace-pre-wrap text-sm text-gray-300 font-mono bg-gray-900/50 rounded p-4">
+                  {versionInfo.latest.body}
+                </pre>
               </div>
             )}
 
-            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <h3 className="text-lg font-bold mb-4">操作</h3>
-              <div className="flex gap-3">
+            <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <span>🎮</span> 操作
+              </h3>
+              <div className="flex flex-wrap gap-3">
                 <button
                   onClick={handleUpdate}
                   disabled={!versionInfo?.updateAvailable}
-                  className={`px-4 py-2 rounded font-medium transition-colors ${
+                  className={`px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
                     versionInfo?.updateAvailable
                       ? 'bg-green-600 hover:bg-green-700'
                       : 'bg-gray-600 cursor-not-allowed'
                   }`}
                 >
-                  更新到最新版本
+                  <span>⬆️</span> 更新到最新版本
                 </button>
                 {versionInfo?.latest?.url && (
                   <a
                     href={versionInfo.latest.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium transition-colors inline-block"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors inline-flex items-center gap-2"
                   >
-                    查看 GitHub Release
+                    <span>📄</span> 查看 GitHub Release
                   </a>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'links' && officialLinks && (
+          <div className="space-y-4">
+            <div className="bg-gray-800/50 rounded-xl p-6 border border-gray-700 backdrop-blur">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <span>🔗</span> OpenClaw 官方链接
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <a
+                  href={officialLinks.github}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-4 bg-gray-700/50 rounded-lg hover:bg-gray-600/50 transition-colors"
+                >
+                  <span className="text-2xl">📂</span>
+                  <div>
+                    <p className="font-medium">GitHub 仓库</p>
+                    <p className="text-xs text-gray-400">源代码 & Issues</p>
+                  </div>
+                </a>
+                <a
+                  href={officialLinks.releases}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-4 bg-gray-700/50 rounded-lg hover:bg-gray-600/50 transition-colors"
+                >
+                  <span className="text-2xl">🏷️</span>
+                  <div>
+                    <p className="font-medium">Releases</p>
+                    <p className="text-xs text-gray-400">版本发布 & 更新日志</p>
+                  </div>
+                </a>
+                <a
+                  href={officialLinks.docs}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-4 bg-gray-700/50 rounded-lg hover:bg-gray-600/50 transition-colors"
+                >
+                  <span className="text-2xl">📖</span>
+                  <div>
+                    <p className="font-medium">官方文档</p>
+                    <p className="text-xs text-gray-400">使用指南 & API</p>
+                  </div>
+                </a>
+                <a
+                  href={officialLinks.discord}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-4 bg-gray-700/50 rounded-lg hover:bg-gray-600/50 transition-colors"
+                >
+                  <span className="text-2xl">💬</span>
+                  <div>
+                    <p className="font-medium">Discord 社区</p>
+                    <p className="text-xs text-gray-400">讨论 & 支持</p>
+                  </div>
+                </a>
+                <a
+                  href={officialLinks.clawhub}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-4 bg-gray-700/50 rounded-lg hover:bg-gray-600/50 transition-colors md:col-span-2"
+                >
+                  <span className="text-2xl">🦞</span>
+                  <div>
+                    <p className="font-medium">ClawHub</p>
+                    <p className="text-xs text-gray-400">技能 & 扩展市场</p>
+                  </div>
+                </a>
               </div>
             </div>
           </div>
@@ -547,7 +676,7 @@ function App() {
       {/* Footer */}
       <footer className="border-t border-gray-800 mt-12">
         <div className="max-w-7xl mx-auto px-4 py-6 text-center text-gray-500 text-sm">
-          OpenClaw 监控面板 · 每 30 秒自动刷新
+          🦞 OpenClaw 监控面板 · 每 30 秒自动刷新 · <a href={officialLinks?.docs} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">文档</a>
         </div>
       </footer>
     </div>

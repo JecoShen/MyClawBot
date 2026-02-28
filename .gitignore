@@ -1,16 +1,42 @@
 # Dependencies
 node_modules/
+.pnp
+.pnp.js
 
-# Build outputs
+# Build output
 dist/
 build/
 
 # Logs
+logs
 *.log
+npm-debug.log*
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
-# OpenClaw
-.openclaw/workspace-state.json
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OpenClaw runtime
+.openclaw/credentials/
+.openclaw/logs/
+.openclaw/agents/
+.openclaw/sessions/
+.openclaw/completions/
+.openclaw/devices/
+.openclaw/identity/
+.openclaw/telegram/
+.openclaw/canvas/
+.openclaw/memory/
+.openclaw/openclaw.json
+.openclaw/openclaw.json.bak*
+
+# Environment
+.env
+.env.local
+.env.*.local
