@@ -19,9 +19,6 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 app.use(cors());
 app.use(express.json());
 
-// 静态文件服务（前端构建后）
-app.use(express.static(path.join(__dirname, '../../frontend/dist')));
-
 // ========== 配置 ==========
 
 // 本地 OpenClaw Gateway 配置
@@ -52,7 +49,6 @@ const INSTANCES_FILE = path.join(__dirname, '../instances.json');
 
 // ========== 工具函数 ==========
 
-// 保存实例配置到文件
 async function saveInstances() {
   try {
     const data = remoteInstances.map(i => ({
@@ -67,7 +63,6 @@ async function saveInstances() {
   }
 }
 
-// 从文件加载实例配置
 async function loadInstances() {
   try {
     const { stdout } = await execAsync(`cat ${INSTANCES_FILE} 2>/dev/null || echo '[]'`);
@@ -85,7 +80,6 @@ async function loadInstances() {
   }
 }
 
-// 获取系统资源信息
 async function getSystemInfo() {
   try {
     const [cpuUsage, mem, disk, uptime] = await Promise.all([
@@ -131,7 +125,6 @@ async function getSystemInfo() {
   }
 }
 
-// 获取 OpenClaw 版本
 async function getOpenClawVersion() {
   try {
     const { stdout } = await execAsync('openclaw --version 2>&1 || echo "not installed"', {
@@ -143,10 +136,8 @@ async function getOpenClawVersion() {
   }
 }
 
-// 连接 Gateway WebSocket
 function connectGateway(instance: RemoteInstance): Promise<'online' | 'offline' | 'error'> {
   return new Promise((resolve) => {
-    // 关闭旧连接
     if (instance.ws) {
       instance.ws.removeAllListeners();
       instance.ws.close();
@@ -194,7 +185,6 @@ function connectGateway(instance: RemoteInstance): Promise<'online' | 'offline' 
   });
 }
 
-// 获取 GitHub 最新版本
 async function getLatestRelease() {
   try {
     const headers: Record<string, string> = {
@@ -224,7 +214,6 @@ async function getLatestRelease() {
     const data: any = await response.json();
     const fullBody = data.body || '';
     
-    // 简化更新日志
     let simplifiedBody = fullBody;
     const changesMatch = fullBody.match(/### Changes[\s\S]*?(?=###|$)/i);
     const fixesMatch = fullBody.match(/### Fixes[\s\S]*?(?=###|$)/i);
@@ -253,9 +242,8 @@ async function getLatestRelease() {
   }
 }
 
-// ========== API 路由 ==========
+// ========== API 路由（必须在静态文件服务之前）==========
 
-// 获取所有实例状态（本地 + 远程）
 app.get('/api/status/all', async (req, res) => {
   const [systemInfo, version, localGateway] = await Promise.all([
     getSystemInfo(),
@@ -270,7 +258,6 @@ app.get('/api/status/all', async (req, res) => {
     })
   ]);
 
-  // 并行检查所有远程实例
   await Promise.all(remoteInstances.map(inst => connectGateway(inst)));
 
   res.json({
@@ -293,7 +280,6 @@ app.get('/api/status/all', async (req, res) => {
   });
 });
 
-// 获取远程实例列表
 app.get('/api/instances', (req, res) => {
   res.json(remoteInstances.map(i => ({
     id: i.id,
@@ -305,7 +291,6 @@ app.get('/api/instances', (req, res) => {
   })));
 });
 
-// 添加远程实例
 app.post('/api/instances', async (req, res) => {
   const { id, name, url, token } = req.body;
   if (!id || !url) {
@@ -326,7 +311,6 @@ app.post('/api/instances', async (req, res) => {
     reconnectAttempts: 0
   };
   
-  // 立即尝试连接
   await connectGateway(instance);
   
   remoteInstances.push(instance);
@@ -334,7 +318,6 @@ app.post('/api/instances', async (req, res) => {
   res.json(instance);
 });
 
-// 删除远程实例
 app.delete('/api/instances/:id', async (req, res) => {
   const index = remoteInstances.findIndex(i => i.id === req.params.id);
   if (index === -1) {
@@ -351,7 +334,6 @@ app.delete('/api/instances/:id', async (req, res) => {
   res.json({ success: true });
 });
 
-// 刷新单个实例状态
 app.get('/api/instances/:id/status', async (req, res) => {
   const instance = remoteInstances.find(i => i.id === req.params.id);
   if (!instance) {
@@ -369,7 +351,6 @@ app.get('/api/instances/:id/status', async (req, res) => {
   });
 });
 
-// 获取最新版本信息
 app.get('/api/version/latest', async (req, res) => {
   const [release, currentVersion] = await Promise.all([
     getLatestRelease(),
@@ -383,7 +364,6 @@ app.get('/api/version/latest', async (req, res) => {
   });
 });
 
-// 获取 Gateway 日志
 app.get('/api/logs', async (req, res) => {
   try {
     const { stdout } = await execAsync('journalctl -u openclaw-gateway -n 100 --no-pager 2>/dev/null || openclaw gateway status 2>&1 || echo "日志不可用"', {
@@ -395,7 +375,6 @@ app.get('/api/logs', async (req, res) => {
   }
 });
 
-// 重启 Gateway
 app.post('/api/gateway/restart', async (req, res) => {
   try {
     await execAsync('openclaw gateway restart 2>&1', {
@@ -407,7 +386,6 @@ app.post('/api/gateway/restart', async (req, res) => {
   }
 });
 
-// 更新 OpenClaw
 app.post('/api/update', async (req, res) => {
   try {
     const { stdout } = await execAsync('openclaw update run 2>&1', {
@@ -419,7 +397,6 @@ app.post('/api/update', async (req, res) => {
   }
 });
 
-// 官方链接
 app.get('/api/links', (req, res) => {
   res.json({
     github: 'https://github.com/openclaw/openclaw',
@@ -430,6 +407,10 @@ app.get('/api/links', (req, res) => {
   });
 });
 
+// ========== 静态文件服务（必须在 API 路由之后）==========
+
+app.use(express.static(path.join(__dirname, '../../frontend/dist')));
+
 // SPA fallback
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
@@ -438,16 +419,14 @@ app.get('*', (req, res) => {
 // ========== 启动 ==========
 
 async function start() {
-  // 加载持久化的实例配置
   await loadInstances();
   
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🦞 OpenClaw Monitor Backend 运行在端口 ${PORT}`);
     console.log(`   本地：http://localhost:${PORT}`);
-    console.log(`   公网：https://organic-spoon-xjprjrg46wq3v6xw-18789.app.github.dev`);
+    console.log(`   公网：https://organic-spoon-xjprjrg46wq3v6xw-${PORT}.app.github.dev`);
   });
   
-  // 每 30 秒自动检查所有实例状态
   setInterval(async () => {
     console.log('🔄 自动检查实例状态...');
     await Promise.all(remoteInstances.map(inst => connectGateway(inst)));
