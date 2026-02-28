@@ -307,15 +307,13 @@ app.get('/api/version/latest', async (req, res) => {
         updateAvailable: release.version !== 'Fetch Failed' && release.version !== 'Rate Limited' && !currentVersion.includes(release.version)
     });
 });
-app.get('/api/logs', async (req, res) => {
+app.get("/api/logs", async (req, res) => {
     try {
-        const { stdout } = await execAsync('journalctl -u openclaw-gateway -n 100 --no-pager 2>/dev/null || openclaw gateway status 2>&1 || echo "日志不可用"', {
-            cwd: '/home/codespace/.openclaw/workspace'
-        });
+        const { stdout } = await execAsync("tail -n 100 /tmp/openclaw/openclaw-*.log 2>/dev/null || echo \"-- No entries --\"");
         res.json({ logs: stdout });
     }
     catch (err) {
-        res.json({ logs: err.message || '无法获取日志' });
+        res.json({ logs: err.message || "无法获取日志" });
     }
 });
 app.post('/api/gateway/restart', async (req, res) => {
