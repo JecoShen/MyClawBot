@@ -14,23 +14,56 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
-// 认证配置
-const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
+// 数据文件
+const DATA_FILE = path.join(__dirname, '../data.json');
 
 app.use(cors());
 app.use(express.json());
 
 // 会话存储
-const sessions: Map<string, { user: string; loginAt: number }> = new Map();
+const sessions: Map<string, { username: string; loginAt: number }> = new Map();
+
+// 数据加载/保存
+interface UserData {
+  username: string;
+  passwordHash: string;
+  createdAt: number;
+}
+
+interface AppData {
+  user: UserData | null;
+}
+
+let appData: AppData = { user: null };
+
+async function loadData() {
+  try {
+    const { stdout } = await execAsync(`cat ${DATA_FILE} 2>/dev/null || echo '{}'`);
+    appData = JSON.parse(stdout.trim() || '{}');
+    if (!appData.user) appData = { user: null };
+    console.log('📦 数据已加载');
+  } catch (err) {
+    appData = { user: null };
+  }
+}
+
+async function saveData() {
+  try {
+    await execAsync(`echo '${JSON.stringify(appData, null, 2)}' > ${DATA_FILE}`);
+  } catch (err) { console.error('Failed to save data:', err); }
+}
+
+function hashPassword(password: string): string {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
 
 // ========== 实例配置 ==========
 
 interface MonitoredInstance {
   id: string;
   name: string;
-  url: string;          // WebSocket 地址，如 ws://192.168.1.100:18789
-  token?: string;       // Gateway Token（可选）
+  url: string;
+  token?: string;
   status: 'online' | 'offline' | 'error';
   error?: string;
   lastSeen?: number;
@@ -40,8 +73,6 @@ interface MonitoredInstance {
 
 const instances: MonitoredInstance[] = [];
 const INSTANCES_FILE = path.join(__dirname, '../instances.json');
-
-// ========== 工具函数 ==========
 
 async function saveInstances() {
   try {
@@ -61,7 +92,6 @@ async function loadInstances() {
   } catch (err) { console.error('Failed to load instances:', err); }
 }
 
-// 连接并检查实例状态
 function checkInstance(instance: MonitoredInstance): Promise<'online' | 'offline' | 'error'> {
   return new Promise((resolve) => {
     if (instance.ws) {
@@ -109,38 +139,13 @@ function checkInstance(instance: MonitoredInstance): Promise<'online' | 'offline
   });
 }
 
-// 格式化日志
-function formatLogs(rawLogs: string): string {
-  const lines = rawLogs.trim().split('\n');
-  const formatted: string[] = [];
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    try {
-      const log = JSON.parse(line);
-      const time = log._meta?.time ? new Date(log._meta.time).toLocaleTimeString('zh-CN') : '???';
-      const level = log._meta?.logLevelName || 'INFO';
-      const message = log['0'] || '';
-      const levelIcon = level === 'ERROR' ? '❌' : level === 'WARN' ? '⚠️' : level === 'DEBUG' ? '' : 'ℹ️';
-      if (level === 'DEBUG') continue;
-      formatted.push(`[${time}] ${levelIcon} ${message}`);
-    } catch { formatted.push(line); }
-  }
-  return formatted.join('\n') || '-- 暂无日志 --';
-}
-
-// 获取 GitHub 最新版本
 async function getLatestRelease() {
   try {
     const headers: Record<string, string> = { 'Accept': 'application/vnd.github+json', 'User-Agent': 'OpenClaw-Monitor/1.0' };
     const response = await fetch('https://api.github.com/repos/openclaw/openclaw/releases/latest', { headers });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     const data: any = await response.json();
-    return {
-      version: data.tag_name || 'unknown',
-      publishedAt: data.published_at,
-      body: data.body || '',
-      url: data.html_url
-    };
+    return { version: data.tag_name || 'unknown', publishedAt: data.published_at, body: data.body || '', url: data.html_url };
   } catch (err: any) {
     return { version: '获取失败', publishedAt: null, body: err.message, url: 'https://github.com/openclaw/openclaw/releases' };
   }
@@ -163,15 +168,75 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
 
 // ========== 认证路由 ==========
 
-app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
-    const sessionId = crypto.randomBytes(32).toString('hex');
-    sessions.set(sessionId, { user: username, loginAt: Date.now() });
-    res.json({ success: true, sessionId, user: username });
-  } else {
-    res.status(401).json({ error: '用户名或密码错误' });
+app.get('/api/auth/status', async (req, res) => {
+  const hasUser = appData.user !== null;
+  const sessionId = req.headers['x-session-id'] as string;
+  
+  if (sessionId && sessions.has(sessionId)) {
+    const session = sessions.get(sessionId)!;
+    if (Date.now() - session.loginAt < 24 * 60 * 60 * 1000) {
+      return res.json({ hasUser: true, authenticated: true, username: session.username });
+    }
+    sessions.delete(sessionId);
   }
+  
+  res.json({ hasUser, authenticated: false });
+});
+
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: '用户名和密码不能为空' });
+  }
+  
+  if (username.length < 3) {
+    return res.status(400).json({ error: '用户名至少 3 个字符' });
+  }
+  
+  if (password.length < 6) {
+    return res.status(400).json({ error: '密码至少 6 个字符' });
+  }
+  
+  if (appData.user) {
+    return res.status(400).json({ error: '用户已存在，请登录' });
+  }
+  
+  appData.user = {
+    username,
+    passwordHash: hashPassword(password),
+    createdAt: Date.now()
+  };
+  
+  await saveData();
+  
+  // 自动登录
+  const sessionId = crypto.randomBytes(32).toString('hex');
+  sessions.set(sessionId, { username, loginAt: Date.now() });
+  
+  res.json({ success: true, sessionId, username });
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!appData.user) {
+    return res.status(400).json({ error: '请先注册账号' });
+  }
+  
+  if (username !== appData.user.username) {
+    return res.status(401).json({ error: '用户名或密码错误' });
+  }
+  
+  const passwordHash = hashPassword(password);
+  if (passwordHash !== appData.user.passwordHash) {
+    return res.status(401).json({ error: '用户名或密码错误' });
+  }
+  
+  const sessionId = crypto.randomBytes(32).toString('hex');
+  sessions.set(sessionId, { username, loginAt: Date.now() });
+  
+  res.json({ success: true, sessionId, username });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -185,65 +250,59 @@ app.get('/api/auth/check', (req, res) => {
   if (sessionId && sessions.has(sessionId)) {
     const session = sessions.get(sessionId)!;
     if (Date.now() - session.loginAt < 24 * 60 * 60 * 1000) {
-      return res.json({ authenticated: true, user: session.user });
+      return res.json({ authenticated: true, username: session.username });
     }
     sessions.delete(sessionId);
   }
   res.json({ authenticated: false });
 });
 
-// ========== API 路由（需要认证）==========
-
-// 获取所有监控实例状态
-app.get('/api/instances', requireAuth, async (req, res) => {
-  // 并行检查所有实例状态
-  await Promise.all(instances.map(inst => checkInstance(inst)));
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  const sessionId = req.headers['x-session-id'] as string;
+  const session = sessions.get(sessionId!)!;
   
-  res.json(instances.map(i => ({
-    id: i.id,
-    name: i.name,
-    url: i.url,
-    status: i.status,
-    error: i.error,
-    lastSeen: i.lastSeen
-  })));
+  if (!appData.user) {
+    return res.status(400).json({ error: '用户不存在' });
+  }
+  
+  // 验证旧密码
+  const oldPasswordHash = hashPassword(oldPassword);
+  if (oldPasswordHash !== appData.user.passwordHash) {
+    return res.status(401).json({ error: '原密码错误' });
+  }
+  
+  // 更新密码
+  appData.user.passwordHash = hashPassword(newPassword);
+  await saveData();
+  
+  res.json({ success: true });
 });
 
-// 添加实例
+// ========== API 路由（需要认证）==========
+
+app.get('/api/instances', requireAuth, async (req, res) => {
+  await Promise.all(instances.map(inst => checkInstance(inst)));
+  res.json(instances.map(i => ({ id: i.id, name: i.name, url: i.url, status: i.status, error: i.error, lastSeen: i.lastSeen })));
+});
+
 app.post('/api/instances', requireAuth, async (req, res) => {
   const { id, name, url, token } = req.body;
-  if (!id || !url) {
-    return res.status(400).json({ error: '实例 ID 和 WebSocket 地址是必填项' });
-  }
+  if (!id || !url) return res.status(400).json({ error: '实例 ID 和 WebSocket 地址是必填项' });
   
   const existing = instances.find(i => i.id === id);
-  if (existing) {
-    return res.status(400).json({ error: '实例已存在' });
-  }
+  if (existing) return res.status(400).json({ error: '实例已存在' });
 
-  const instance: MonitoredInstance = {
-    id,
-    name: name || id,
-    url,
-    token: token || '',
-    status: 'offline',
-    reconnectAttempts: 0
-  };
-  
-  // 立即检查状态
+  const instance: MonitoredInstance = { id, name: name || id, url, token: token || '', status: 'offline', reconnectAttempts: 0 };
   await checkInstance(instance);
-  
   instances.push(instance);
   await saveInstances();
   res.json(instance);
 });
 
-// 删除实例
 app.delete('/api/instances/:id', requireAuth, async (req, res) => {
   const index = instances.findIndex(i => i.id === req.params.id);
-  if (index === -1) {
-    return res.status(404).json({ error: '实例不存在' });
-  }
+  if (index === -1) return res.status(404).json({ error: '实例不存在' });
   
   const instance = instances[index];
   if (instance.ws) instance.ws.close();
@@ -253,61 +312,35 @@ app.delete('/api/instances/:id', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
-// 刷新单个实例状态
 app.get('/api/instances/:id/status', requireAuth, async (req, res) => {
   const instance = instances.find(i => i.id === req.params.id);
-  if (!instance) {
-    return res.status(404).json({ error: '实例不存在' });
-  }
-
+  if (!instance) return res.status(404).json({ error: '实例不存在' });
   await checkInstance(instance);
-  res.json({
-    id: instance.id,
-    name: instance.name,
-    url: instance.url,
-    status: instance.status,
-    error: instance.error,
-    lastSeen: instance.lastSeen
-  });
+  res.json({ id: instance.id, name: instance.name, url: instance.url, status: instance.status, error: instance.error, lastSeen: instance.lastSeen });
 });
 
-// 获取版本信息
 app.get('/api/version/latest', requireAuth, async (req, res) => {
   const release = await getLatestRelease();
-  res.json({
-    current: 'N/A (远程监控)',
-    latest: release,
-    updateAvailable: release.version !== '获取失败'
-  });
+  res.json({ current: 'N/A (远程监控)', latest: release, updateAvailable: release.version !== '获取失败' });
 });
 
-// 获取实例日志（需要实例支持日志 API）
 app.get('/api/logs', requireAuth, async (req, res) => {
   res.json({ logs: '-- 日志功能需要实例支持 --\n\n提示：可以在各 OpenClaw 实例上查看本地日志' });
 });
 
-// 官方链接
 app.get('/api/links', requireAuth, (req, res) => {
-  res.json({
-    github: 'https://github.com/openclaw/openclaw',
-    releases: 'https://github.com/openclaw/openclaw/releases',
-    docs: 'https://docs.openclaw.ai',
-    discord: 'https://discord.com/invite/clawd',
-    clawhub: 'https://clawhub.com'
-  });
+  res.json({ github: 'https://github.com/openclaw/openclaw', releases: 'https://github.com/openclaw/openclaw/releases', docs: 'https://docs.openclaw.ai', discord: 'https://discord.com/invite/clawd', clawhub: 'https://clawhub.com' });
 });
 
 // ========== 静态文件服务 ==========
 
 app.use(express.static(path.join(__dirname, '../../frontend/dist')));
-
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
-});
+app.get('*', (req, res) => { res.sendFile(path.join(__dirname, '../../frontend/dist/index.html')); });
 
 // ========== 启动 ==========
 
 async function start() {
+  await loadData();
   await loadInstances();
   
   app.listen(PORT, '0.0.0.0', () => {
@@ -315,17 +348,13 @@ async function start() {
     console.log('🦞 OpenClaw 监控面板 已启动');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📡 端口：${PORT}`);
-    console.log(`👤 账号：${ADMIN_USER} / ${ADMIN_PASS}`);
     console.log(`🌐 公网：https://3001-organic-spoon-xjprjrg46wq3v6xw.app.github.dev`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('💡 提示：登录后添加要监控的 OpenClaw 实例');
+    console.log('💡 首次访问请注册账号');
     console.log('');
   });
   
-  // 每 30 秒自动检查所有实例
-  setInterval(async () => {
-    await Promise.all(instances.map(inst => checkInstance(inst)));
-  }, 30000);
+  setInterval(async () => { await Promise.all(instances.map(inst => checkInstance(inst))); }, 30000);
 }
 
 start();

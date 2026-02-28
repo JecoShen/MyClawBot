@@ -1,34 +1,38 @@
 import { useState, useEffect } from 'react'
 
 interface RemoteInstance {
-  id: string
-  name: string
-  url: string
-  status: 'online' | 'offline' | 'error'
-  error?: string
-  lastSeen?: number
+  id: string; name: string; url: string;
+  status: 'online' | 'offline' | 'error';
+  error?: string; lastSeen?: number;
 }
 
 interface VersionInfo {
-  current: string
-  latest: { version: string; publishedAt: string; body: string; url: string } | null
-  updateAvailable: boolean
+  current: string;
+  latest: { version: string; publishedAt: string; body: string; url: string } | null;
+  updateAvailable: boolean;
 }
 
 interface OfficialLinks {
-  github: string; releases: string; docs: string; discord: string; clawhub: string
+  github: string; releases: string; docs: string; discord: string; clawhub: string;
 }
 
 interface NewInstanceForm {
-  id: string; name: string; url: string; token: string
+  id: string; name: string; url: string; token: string;
 }
 
 function App() {
-  const [authenticated, setAuthenticated] = useState(false)
+  const [authStatus, setAuthStatus] = useState<{ hasUser: boolean; authenticated: boolean; username?: string }>({ hasUser: false, authenticated: false })
   const [loading, setLoading] = useState(true)
+  const [isRegister, setIsRegister] = useState(true)
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
-  const [loginError, setLoginError] = useState('')
+  const [registerForm, setRegisterForm] = useState({ username: '', password: '', confirmPassword: '' })
+  const [formError, setFormError] = useState('')
   const [sessionId, setSessionId] = useState<string>(() => localStorage.getItem('sessionId') || '')
+  const [username, setUsername] = useState<string>(() => localStorage.getItem('username') || '')
+  const [showMenu, setShowMenu] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmNew: '' })
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
+  
   const [instances, setInstances] = useState<RemoteInstance[]>([])
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null)
   const [logs, setLogs] = useState<string>('')
@@ -38,25 +42,25 @@ function App() {
   const [newInstance, setNewInstance] = useState<NewInstanceForm>({ id: '', name: '', url: '', token: '' })
 
   useEffect(() => {
-    if (sessionId) {
-      fetch('/api/auth/check', { headers: { 'X-Session-Id': sessionId } })
-        .then(res => res.json())
-        .then(data => {
-          if (data.authenticated) {
-            setAuthenticated(true)
-            fetchData()
-          } else {
-            localStorage.removeItem('sessionId')
-            setSessionId('')
-            setAuthenticated(false)
-          }
-          setLoading(false)
-        })
-        .catch(() => setLoading(false))
-    } else {
+    checkAuth()
+  }, [])
+
+  const checkAuth = async () => {
+    try {
+      const res = await fetch('/api/auth/status', {
+        headers: sessionId ? { 'X-Session-Id': sessionId } : {}
+      })
+      const data = await res.json()
+      setAuthStatus(data)
+      
+      if (data.authenticated && sessionId) {
+        fetchData()
+      }
+      setLoading(false)
+    } catch (err) {
       setLoading(false)
     }
-  }, [])
+  }
 
   const fetchData = async () => {
     if (!sessionId) return
@@ -75,9 +79,40 @@ function App() {
     } catch (err) { console.error('Failed to fetch data:', err) }
   }
 
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError('')
+    
+    if (registerForm.password !== registerForm.confirmPassword) {
+      setFormError('两次输入的密码不一致')
+      return
+    }
+    
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: registerForm.username, password: registerForm.password })
+      })
+      const data = await res.json()
+      
+      if (res.ok) {
+        setSessionId(data.sessionId)
+        setUsername(data.username)
+        localStorage.setItem('sessionId', data.sessionId)
+        localStorage.setItem('username', data.username)
+        setAuthStatus({ hasUser: true, authenticated: true, username: data.username })
+        fetchData()
+      } else {
+        setFormError(data.error || '注册失败')
+      }
+    } catch (err) { setFormError('网络错误，请稍后重试') }
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoginError('')
+    setFormError('')
+    
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -85,23 +120,66 @@ function App() {
         body: JSON.stringify(loginForm)
       })
       const data = await res.json()
+      
       if (res.ok) {
         setSessionId(data.sessionId)
-        setAuthenticated(true)
+        setUsername(data.username)
         localStorage.setItem('sessionId', data.sessionId)
+        localStorage.setItem('username', data.username)
+        setAuthStatus({ hasUser: true, authenticated: true, username: data.username })
         fetchData()
       } else {
-        setLoginError(data.error || '登录失败')
+        setFormError(data.error || '登录失败')
       }
-    } catch (err) { setLoginError('网络错误，请稍后重试') }
+    } catch (err) { setFormError('网络错误，请稍后重试') }
   }
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { headers: { 'X-Session-Id': sessionId } })
     localStorage.removeItem('sessionId')
+    localStorage.removeItem('username')
     setSessionId('')
-    setAuthenticated(false)
+    setUsername('')
+    setAuthStatus(prev => ({ ...prev, authenticated: false }))
     setInstances([])
+    setShowMenu(false)
+  }
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (passwordForm.newPassword !== passwordForm.confirmNew) {
+      alert('两次输入的新密码不一致')
+      return
+    }
+    
+    if (passwordForm.newPassword.length < 6) {
+      alert('新密码至少 6 个字符')
+      return
+    }
+    
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Session-Id': sessionId 
+        },
+        body: JSON.stringify({ 
+          oldPassword: passwordForm.oldPassword, 
+          newPassword: passwordForm.newPassword 
+        })
+      })
+      
+      if (res.ok) {
+        alert('密码修改成功，请重新登录')
+        setShowPasswordModal(false)
+        handleLogout()
+      } else {
+        const data = await res.json()
+        alert(data.error || '修改失败')
+      }
+    } catch (err) { alert('网络错误') }
   }
 
   const handleAddInstance = async () => {
@@ -148,13 +226,14 @@ function App() {
   const copyLogs = () => { navigator.clipboard.writeText(logs); alert('日志已复制到剪贴板') }
 
   useEffect(() => {
-    if (authenticated) {
+    if (authStatus.authenticated) {
       const interval = setInterval(fetchData, 30000)
       return () => clearInterval(interval)
     }
-  }, [authenticated, sessionId])
+  }, [authStatus.authenticated, sessionId])
 
-  if (!authenticated) {
+  // 注册/登录页面
+  if (!authStatus.authenticated) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
         <div className="w-full max-w-md">
@@ -162,32 +241,93 @@ function App() {
             <div className="text-center mb-8">
               <span className="text-5xl mb-4 block">🦞</span>
               <h1 className="text-2xl font-bold text-white">OpenClaw 监控面板</h1>
-              <p className="text-gray-400 mt-2">请登录以继续</p>
+              <p className="text-gray-400 mt-2">{authStatus.hasUser ? '请登录' : '首次使用请注册'}</p>
             </div>
-            <form onSubmit={handleLogin} className="space-y-6">
+            
+            {authStatus.hasUser && (
+              <div className="flex mb-6 border-b border-gray-700">
+                <button
+                  onClick={() => setIsRegister(false)}
+                  className={`flex-1 pb-2 text-sm font-medium transition-colors ${!isRegister ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400'}`}
+                >
+                  登录
+                </button>
+                <button
+                  onClick={() => setIsRegister(true)}
+                  className={`flex-1 pb-2 text-sm font-medium transition-colors ${isRegister ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-400'}`}
+                >
+                  注册
+                </button>
+              </div>
+            )}
+            
+            <form onSubmit={isRegister ? handleRegister : handleLogin} className="space-y-6">
               <div>
                 <label className="block text-sm text-gray-400 mb-2">用户名</label>
-                <input type="text" value={loginForm.username} onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500" placeholder="请输入用户名" required />
+                <input
+                  type="text"
+                  value={isRegister ? registerForm.username : loginForm.username}
+                  onChange={(e) => isRegister 
+                    ? setRegisterForm({ ...registerForm, username: e.target.value })
+                    : setLoginForm({ ...loginForm, username: e.target.value })
+                  }
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500"
+                  placeholder="至少 3 个字符"
+                  minLength={3}
+                  required
+                />
               </div>
+              
               <div>
                 <label className="block text-sm text-gray-400 mb-2">密码</label>
-                <input type="password" value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500" placeholder="请输入密码" required />
+                <input
+                  type="password"
+                  value={isRegister ? registerForm.password : loginForm.password}
+                  onChange={(e) => isRegister 
+                    ? setRegisterForm({ ...registerForm, password: e.target.value })
+                    : setLoginForm({ ...loginForm, password: e.target.value })
+                  }
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500"
+                  placeholder="至少 6 个字符"
+                  minLength={6}
+                  required
+                />
               </div>
-              {loginError && <div className="bg-red-900/50 border border-red-700 rounded-lg p-3 text-red-300 text-sm">{loginError}</div>}
-              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition-colors">登录</button>
+              
+              {isRegister && (
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">确认密码</label>
+                  <input
+                    type="password"
+                    value={registerForm.confirmPassword}
+                    onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })}
+                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500"
+                    placeholder="再次输入密码"
+                    required
+                  />
+                </div>
+              )}
+              
+              {formError && (
+                <div className="bg-red-900/50 border border-red-700 rounded-lg p-3 text-red-300 text-sm">
+                  {formError}
+                </div>
+              )}
+              
+              <button
+                type="submit"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition-colors"
+              >
+                {isRegister ? '注册并登录' : '登录'}
+              </button>
             </form>
-            <div className="mt-6 text-center text-sm text-gray-500">
-              <p>默认账号：admin / admin123</p>
-              <p className="mt-1 text-xs">可通过环境变量 ADMIN_USER 和 ADMIN_PASS 修改</p>
-            </div>
           </div>
         </div>
       </div>
     )
   }
 
+  // 主界面
   if (loading) return <div className="min-h-screen bg-gray-900 flex items-center justify-center"><div className="text-xl animate-pulse">🦞 加载中...</div></div>
 
   return (
@@ -199,9 +339,35 @@ function App() {
               <span className="text-3xl">🦞</span>
               <div><h1 className="text-xl font-bold">OpenClaw 监控面板</h1><p className="text-sm text-gray-400">多实例监控</p></div>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-400">👤 已登录</span>
-              <button onClick={handleLogout} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors">退出登录</button>
+            <div className="flex items-center gap-4 relative">
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+              >
+                <span>👤</span>
+                <span>{username}</span>
+                <span>▼</span>
+              </button>
+              
+              {showMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)}></div>
+                  <div className="absolute right-0 mt-2 w-48 bg-gray-700 rounded-lg shadow-xl z-50 border border-gray-600 overflow-hidden">
+                    <button
+                      onClick={() => { setShowPasswordModal(true); setShowMenu(false); }}
+                      className="w-full px-4 py-3 text-left text-sm hover:bg-gray-600 transition-colors flex items-center gap-2"
+                    >
+                      <span>🔑</span> 修改密码
+                    </button>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full px-4 py-3 text-left text-sm hover:bg-gray-600 transition-colors flex items-center gap-2 border-t border-gray-600"
+                    >
+                      <span>🚪</span> 退出登录
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -350,6 +516,33 @@ function App() {
           </div>
         )}
       </main>
+
+      {/* 修改密码弹窗 */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowPasswordModal(false)}>
+          <div className="bg-gray-800 rounded-2xl p-8 max-w-md w-full border border-gray-700" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold mb-6 flex items-center gap-2">🔑 修改密码</h3>
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">原密码</label>
+                <input type="password" value={passwordForm.oldPassword} onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })} className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500" required />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">新密码</label>
+                <input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500" minLength={6} required />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">确认新密码</label>
+                <input type="password" value={passwordForm.confirmNew} onChange={(e) => setPasswordForm({ ...passwordForm, confirmNew: e.target.value })} className="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500" required />
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setShowPasswordModal(false)} className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors">取消</button>
+                <button type="submit" className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors">确认修改</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <footer className="border-t border-gray-800 mt-12">
         <div className="max-w-7xl mx-auto px-4 py-6 text-center text-gray-500 text-sm">🦞 OpenClaw 监控面板 · 每 30 秒自动刷新</div>
