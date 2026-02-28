@@ -399,3 +399,303 @@ MIT License
 **🦞 让 OpenClaw 监控变得简单！**
 
 *最后更新：2026-02-28*
+
+---
+
+## 📖 OpenClaw 实例配置详细教程
+
+### 前置准备
+
+在添加实例之前，你需要确保 OpenClaw 实例满足以下条件：
+
+#### 1️⃣ 确认 OpenClaw 版本
+
+```bash
+# SSH 登录到你的 OpenClaw 服务器
+openclaw --version
+```
+
+**要求：** OpenClaw 版本 >= 2026.2.0
+
+**升级命令：**
+```bash
+openclaw update run
+```
+
+---
+
+#### 2️⃣ 获取 WebSocket 地址
+
+**什么是 WebSocket 地址？**
+
+WebSocket 地址是监控面板连接 OpenClaw Gateway 的 URL，格式如下：
+
+```
+ws://IP 地址：端口
+或
+wss://域名：端口
+```
+
+**如何获取：**
+
+**方法 A：本地部署（同一台服务器）**
+
+如果监控面板和 OpenClaw 在同一台服务器：
+```
+ws://127.0.0.1:18789
+```
+
+**方法 B：内网部署（同一局域网）**
+
+如果监控面板和 OpenClaw 在同一局域网：
+```bash
+# 在 OpenClaw 服务器上查看内网 IP
+ip addr show | grep "inet " | grep -v 127.0.0.1
+
+# 输出示例：inet 192.168.1.100/24
+# 那么 WebSocket 地址是：
+ws://192.168.1.100:18789
+```
+
+**方法 C：公网部署（不同网络）**
+
+如果监控面板和 OpenClaw 不在同一网络（如 VPS 监控家里的 OpenClaw）：
+
+**步骤 1：配置端口转发（家庭宽带）**
+
+1. 登录路由器管理后台（通常是 `192.168.1.1` 或 `192.168.0.1`）
+2. 找到 **端口转发** / **虚拟服务器** / **NAT** 设置
+3. 添加规则：
+   - **内部 IP**：OpenClaw 服务器的内网 IP（如 `192.168.1.100`）
+   - **内部端口**：`18789`
+   - **外部端口**：`18789`
+   - **协议**：TCP
+
+**步骤 2：获取公网 IP**
+
+```bash
+# 在 OpenClaw 服务器上执行
+curl ifconfig.me
+# 或访问 https://ip138.com
+```
+
+**步骤 3：填写 WebSocket 地址**
+
+```
+ws://你的公网 IP:18789
+```
+
+**⚠️ 注意：** 家庭宽带的公网 IP 可能会变化，建议使用 DDNS（动态域名解析）
+
+**方法 D：使用域名（推荐）**
+
+如果有域名，可以配置 DDNS：
+
+```
+wss://your-domain.com:18789
+```
+
+---
+
+#### 3️⃣ 获取 Gateway Token（可选但推荐）
+
+**什么是 Gateway Token？**
+
+Gateway Token 是 OpenClaw 的认证令牌，用于验证监控面板的连接请求。配置后，只有知道 Token 的面板才能连接，提高安全性。
+
+**如何获取/配置 Token：**
+
+**步骤 1：查看当前配置**
+
+```bash
+# SSH 登录 OpenClaw 服务器
+cat ~/.openclaw/openclaw.json
+```
+
+**步骤 2：配置 Token**
+
+编辑配置文件：
+```bash
+nano ~/.openclaw/openclaw.json
+```
+
+找到或添加 `gateway` 配置：
+```json
+{
+  "gateway": {
+    "bind": "0.0.0.0",
+    "port": 18789,
+    "token": "your-secret-token-here"
+  }
+}
+```
+
+**Token 生成建议：**
+- 长度：至少 16 位
+- 包含：大小写字母 + 数字
+- 示例：`MyClaw2026SecureToken#888`
+
+**快速生成随机 Token：**
+```bash
+# 生成随机字符串
+openssl rand -hex 16
+# 输出示例：a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+```
+
+**步骤 3：重启 Gateway**
+
+```bash
+openclaw gateway restart
+```
+
+**步骤 4：验证 Token 是否生效**
+
+```bash
+openclaw gateway status
+```
+
+看到类似输出表示成功：
+```
+Gateway: bind=0.0.0.0, port=18789
+Token: configured ✓
+```
+
+---
+
+#### 4️⃣ 防火墙配置
+
+**确保 18789 端口开放：**
+
+**Linux (UFW)：**
+```bash
+sudo ufw allow 18789/tcp
+sudo ufw status
+```
+
+**Linux (Firewalld)：**
+```bash
+sudo firewall-cmd --permanent --add-port=18789/tcp
+sudo firewall-cmd --reload
+```
+
+**云服务器（阿里云/腾讯云/AWS 等）：**
+
+1. 登录云服务商控制台
+2. 找到 **安全组** / **防火墙** 设置
+3. 添加入站规则：
+   - **协议**：TCP
+   - **端口**：`18789`
+   - **来源**：`0.0.0.0/0`（或监控面板的 IP）
+
+---
+
+### 📋 完整配置检查清单
+
+在添加实例之前，请确认：
+
+- [ ] OpenClaw 版本 >= 2026.2.0
+- [ ] Gateway 正在运行 (`openclaw gateway status`)
+- [ ] 知道 WebSocket 地址（`ws://IP:18789`）
+- [ ] （可选）已配置 Gateway Token
+- [ ] 防火墙已开放 18789 端口
+- [ ] 监控面板能访问 OpenClaw 服务器（网络可达）
+
+---
+
+### 🔧 在监控面板中添加实例
+
+**步骤 1：登录监控面板**
+
+访问：`http://你的监控面板地址`
+
+账号：`admin` / `admin123`（或自定义的账号）
+
+**步骤 2：进入实例管理**
+
+点击顶部导航栏的 **💻 实例** 标签
+
+**步骤 3：添加实例**
+
+点击 **+ 添加实例** 按钮，填写：
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| **实例 ID** | 唯一标识，只能用英文和数字 | `home-server` |
+| **名称** | 显示名称，可以是中文 | `家里服务器` |
+| **WebSocket 地址** | 必须包含 `ws://` 或 `wss://` | `ws://192.168.1.100:18789` |
+| **Gateway Token** | 如果配置了就填写，否则留空 | `MySecretToken123` |
+
+**步骤 4：确认状态**
+
+添加后，实例卡片会显示状态：
+
+- 🟢 **● 在线** - 连接成功
+- 🔴 **○ 离线** - 无法连接（检查网络和端口）
+- 🟡 **⚠ 错误** - 认证失败（检查 Token）
+
+---
+
+### 🐛 常见问题排查
+
+#### 问题 1：显示「离线」
+
+**可能原因：**
+1. 网络不可达
+2. 端口未开放
+3. Gateway 未运行
+
+**解决方法：**
+```bash
+# 1. 检查 Gateway 状态
+openclaw gateway status
+
+# 2. 检查端口监听
+netstat -tlnp | grep 18789
+
+# 3. 从监控面板服务器测试连接
+telnet OpenClaw-IP 18789
+# 或
+nc -zv OpenClaw-IP 18789
+```
+
+#### 问题 2：显示「错误：Authentication failed」
+
+**原因：** Token 不匹配
+
+**解决方法：**
+1. 确认 OpenClaw 配置的 Token
+2. 在监控面板中删除该实例
+3. 重新添加，填写正确的 Token
+
+#### 问题 3：家庭宽带无法连接
+
+**可能原因：**
+1. 没有公网 IP
+2. 路由器未配置端口转发
+3. 防火墙阻止
+
+**解决方法：**
+1. 联系运营商申请公网 IP
+2. 配置路由器端口转发
+3. 使用内网穿透工具（如 frp、ngrok）
+
+---
+
+### 📞 需要帮助？
+
+如果遇到问题：
+
+1. **查看日志** - 在 OpenClaw 服务器上：
+   ```bash
+   tail -f /tmp/openclaw/openclaw-*.log
+   ```
+
+2. **官方文档** - https://docs.openclaw.ai
+
+3. **Discord 社区** - https://discord.com/invite/clawd
+
+4. **提交 Issue** - https://github.com/openclaw/openclaw/issues
+
+---
+
+**🦞 配置完成！享受集中监控的便利！**
