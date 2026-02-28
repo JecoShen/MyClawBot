@@ -8,7 +8,7 @@
 
 这不是某个 OpenClaw 实例的附属工具，而是一个**独立的监控产品**：
 
-- ✅ 部署在一台独立的服务器（VPS/本地/树莓派）
+- ✅ 部署在一台独立的服务器（VPS/本地/树莓派/宝塔面板）
 - ✅ 监控任意位置的 OpenClaw 实例（家里、公司、其他 VPS）
 - ✅ 即使某个 OpenClaw 实例挂了，监控面板依然在线
 - ✅ 一个面板管理所有实例，状态一目了然
@@ -42,18 +42,146 @@
 
 ---
 
-## 🚀 快速开始
+## 🚀 部署方式
 
-### 方式一：Codespaces 体验
+### 方式一：宝塔面板部署（推荐 ⭐）
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/JecoShen/MyClawBot)
+**前置要求：** 已安装宝塔面板（https://www.bt.cn）
 
-1. 点击上方按钮在 Codespaces 中打开
-2. 等待服务启动
-3. 访问：`https://3001-你的-Codespaces-ID.app.github.dev`
-4. 登录：`admin` / `admin123`
+#### 步骤 1：安装 Node.js
 
-### 方式二：VPS 部署（推荐）
+1. 登录宝塔面板
+2. 左侧菜单 → **软件商店**
+3. 搜索 **Node.js**
+4. 点击 **安装**（推荐版本 20+）
+
+#### 步骤 2：创建网站
+
+1. 左侧菜单 → **网站** → **添加站点**
+2. 填写域名（或直接用 IP）
+3. 运行环境选择 **纯静态**
+4. 数据库选择 **无需**
+5. 点击 **提交**
+
+#### 步骤 3：部署项目
+
+1. 进入刚创建的网站目录（如：`/www/wwwroot/your-domain.com`）
+2. 点击 **终端** 或通过 SSH 连接
+3. 执行以下命令：
+
+```bash
+# 克隆项目
+git clone https://github.com/JecoShen/MyClawBot.git .
+
+# 进入监控面板目录
+cd openclaw-monitor
+
+# 安装前端依赖并构建
+cd frontend
+npm install --registry=https://registry.npmmirror.com
+npm run build
+
+# 安装后端依赖
+cd ../backend
+npm install --registry=https://registry.npmmirror.com
+npm run build
+```
+
+#### 步骤 4：配置 Node.js 项目
+
+1. 左侧菜单 → **Node.js**
+2. 点击 **添加 Node.js 项目**
+3. 配置如下：
+   - **项目目录**：`/www/wwwroot/your-domain.com/openclaw-monitor/backend`
+   - **启动文件**：`dist/index.js`
+   - **端口**：`3001`
+   - **是否开机启动**：✅ 是
+   - **项目别名**：`openclaw-monitor`
+
+4. 点击 **提交**
+
+#### 步骤 5：配置反向代理
+
+1. 左侧菜单 → **网站**
+2. 点击刚创建的网站 → **设置**
+3. 左侧菜单 → **反向代理**
+4. 点击 **添加反向代理**
+5. 配置如下：
+   - **代理名称**：`monitor`
+   - **目标 URL**：`http://127.0.0.1:3001`
+   - **发送域名**：`$host`
+   - **代理目录**：留空（代理整个站点）
+
+6. 点击 **提交**
+
+#### 步骤 6：修改默认账号（可选）
+
+1. 在宝塔面板 → **Node.js**
+2. 找到 `openclaw-monitor` 项目 → **设置**
+3. 添加环境变量：
+   - `ADMIN_USER` = `your_username`
+   - `ADMIN_PASS` = `your_password`
+
+4. 点击 **保存** 并 **重启项目**
+
+#### 步骤 7：配置防火墙
+
+1. 左侧菜单 → **安全**
+2. 放行端口：
+   - 如果使用域名访问，只需放行 `80` 和 `443`
+   - 如果直接 IP 访问，放行 `3001`
+
+#### ✅ 完成！
+
+访问：`http://你的域名` 或 `http://你的 IP:3001`
+
+默认账号：`admin` / `admin123`
+
+---
+
+### 方式二：Docker 部署
+
+```bash
+# 1. 创建 Dockerfile
+cat > Dockerfile << 'DOCKERFILE'
+FROM node:22-alpine
+
+WORKDIR /app
+
+# 复制源码
+COPY . .
+
+# 安装依赖并构建
+RUN cd openclaw-monitor/frontend && npm install --registry=https://registry.npmmirror.com && npm run build
+RUN cd openclaw-monitor/backend && npm install --registry=https://registry.npmmirror.com && npm run build
+
+# 暴露端口
+EXPOSE 3001
+
+# 启动服务
+WORKDIR /app/openclaw-monitor/backend
+CMD ["node", "dist/index.js"]
+DOCKERFILE
+
+# 2. 构建镜像
+docker build -t openclaw-monitor .
+
+# 3. 运行容器
+docker run -d \
+  --name openclaw-monitor \
+  -p 3001:3001 \
+  -e ADMIN_USER=admin \
+  -e ADMIN_PASS=admin123 \
+  -v openclaw-data:/app/openclaw-monitor/backend \
+  --restart always \
+  openclaw-monitor
+```
+
+访问：`http://你的 IP:3001`
+
+---
+
+### 方式三：手动部署（VPS）
 
 ```bash
 # 1. 克隆项目
@@ -78,7 +206,18 @@ pm2 startup
 pm2 save
 ```
 
-访问：`http://你的 VPS-IP:3001`
+访问：`http://你的 IP:3001`
+
+---
+
+### 方式四：Codespaces 体验
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/JecoShen/MyClawBot)
+
+1. 点击上方按钮在 Codespaces 中打开
+2. 等待服务启动
+3. 访问：`https://3001-你的-Codespaces-ID.app.github.dev`
+4. 登录：`admin` / `admin123`
 
 ---
 
@@ -86,17 +225,22 @@ pm2 save
 
 ### 修改默认账号
 
+**宝塔面板：**
+1. 面板 → Node.js → 项目设置
+2. 添加环境变量：
+   - `ADMIN_USER` = `your_username`
+   - `ADMIN_PASS` = `your_password`
+
+**手动部署：**
 ```bash
-# 方法 1：环境变量
 export ADMIN_USER=your_username
 export ADMIN_PASS=your_password
 npm start
+```
 
-# 方法 2：systemd 服务
-# 编辑 /etc/systemd/system/openclaw-monitor.service
-[Service]
-Environment="ADMIN_USER=your_username"
-Environment="ADMIN_PASS=your_password"
+**Docker：**
+```bash
+docker run -e ADMIN_USER=your_username -e ADMIN_PASS=your_password ...
 ```
 
 ### 添加监控实例
@@ -179,7 +323,7 @@ VPS（监控面板） ──────→ 家里宽带（OpenClaw）
 1. **网络可达** - 确保监控面板能访问各 OpenClaw 实例的 WebSocket 端口
 2. **防火墙** - 开放 18789 端口（或你配置的 Gateway 端口）
 3. **Token 认证** - 建议为 Gateway 配置 Token，提高安全性
-4. **HTTPS** - 生产环境建议使用 Nginx 反向代理 + HTTPS
+4. **HTTPS** - 生产环境建议使用 Nginx 反向代理 + HTTPS（宝塔自动处理）
 5. **备份** - 定期备份 `instances.json` 配置文件
 
 ---
