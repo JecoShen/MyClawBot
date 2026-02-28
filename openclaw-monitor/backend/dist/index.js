@@ -7,13 +7,19 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import os from 'os';
 import osUtils from 'os-utils';
+import crypto from 'crypto';
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
+// 认证配置
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASS = process.env.ADMIN_PASS || 'admin123';
 app.use(cors());
 app.use(express.json());
+// 简单的会话存储
+const sessions = new Map();
 // ========== 配置 ==========
 const LOCAL_GATEWAY = {
     url: process.env.OPENCLAW_LOCAL_URL || 'ws://127.0.0.1:18789',
@@ -74,7 +80,6 @@ async function getSystemInfo() {
         };
     }
     catch (error) {
-        console.error('Failed to get system info:', error);
         return { cpu: { cores: 0, usage: 0 }, memory: { total: 0, used: 0, free: 0, percent: 0 }, disk: { total: '0', used: '0', free: '0', percent: 0 }, uptime: 'unknown' };
     }
 }
@@ -133,16 +138,9 @@ function connectGateway(instance) {
 async function getLatestRelease() {
     try {
         const headers = { 'Accept': 'application/vnd.github+json', 'User-Agent': 'OpenClaw-Monitor/1.0' };
-        const githubToken = process.env.GITHUB_TOKEN;
-        if (githubToken)
-            headers['Authorization'] = `Bearer ${githubToken}`;
         const response = await fetch('https://api.github.com/repos/openclaw/openclaw/releases/latest', { headers });
-        if (!response.ok) {
-            if (response.status === 403) {
-                return { version: 'Rate Limited', publishedAt: null, body: 'GitHub API 限流', url: 'https://github.com/openclaw/openclaw/releases' };
-            }
+        if (!response.ok)
             throw new Error(`API error: ${response.status}`);
-        }
         const data = await response.json();
         const fullBody = data.body || '';
         let simplifiedBody = fullBody;
@@ -161,7 +159,6 @@ async function getLatestRelease() {
         return { version: 'Fetch Failed', publishedAt: null, body: `错误：${err.message}`, url: 'https://github.com/openclaw/openclaw/releases' };
     }
 }
-// 格式化日志 - 将 JSON 日志转换为易读格式
 function formatLogs(rawLogs) {
     const lines = rawLogs.trim().split('\n');
     const formatted = [];
@@ -172,12 +169,10 @@ function formatLogs(rawLogs) {
             const log = JSON.parse(line);
             const time = log._meta?.time ? new Date(log._meta.time).toLocaleTimeString('zh-CN') : '???';
             const level = log._meta?.logLevelName || 'INFO';
-            const name = log._meta?.name || 'openclaw';
             const message = log['0'] || '';
-            // 只保留重要日志
             const levelIcon = level === 'ERROR' ? '❌' : level === 'WARN' ? '⚠️' : level === 'DEBUG' ? '' : 'ℹ️';
             if (level === 'DEBUG')
-                continue; // 跳过 DEBUG 日志
+                continue;
             formatted.push(`[${time}] ${levelIcon} ${message}`);
         }
         catch {
@@ -186,30 +181,62 @@ function formatLogs(rawLogs) {
     }
     return formatted.join('\n') || '-- No entries --';
 }
-// ========== API 路由 ==========
-app.get('/api/status/all', async (req, res) => {
-    const [systemInfo, version, localGateway] = await Promise.all([
-        getSystemInfo(),
-        getOpenClawVersion(),
-        connectGateway({ id: 'local', name: 'Local', url: LOCAL_GATEWAY.url, token: LOCAL_GATEWAY.token, status: 'offline', reconnectAttempts: 0 })
-    ]);
+// ========== 认证中间件 ==========
+function requireAuth(req, res, next) {
+    const sessionId = req.headers['x-session-id'];
+    if (!sessionId || !sessions.has(sessionId)) {
+        return res.status(401).json({ error: '未授权' });
+    }
+    const session = sessions.get(sessionId);
+    // 检查会话是否过期（24 小时）
+    if (Date.now() - session.loginAt > 24 * 60 * 60 * 1000) {
+        sessions.delete(sessionId);
+        return res.status(401).json({ error: '会话已过期' });
+    }
+    next();
+}
+// ========== 认证路由 ==========
+app.post('/api/auth/login', (req, res) => {
+    const { username, password } = req.body;
+    if (username === ADMIN_USER && password === ADMIN_PASS) {
+        const sessionId = crypto.randomBytes(32).toString('hex');
+        sessions.set(sessionId, { user: username, loginAt: Date.now() });
+        res.json({ success: true, sessionId, user: username });
+    }
+    else {
+        res.status(401).json({ error: '用户名或密码错误' });
+    }
+});
+app.post('/api/auth/logout', (req, res) => {
+    const sessionId = req.headers['x-session-id'];
+    if (sessionId) {
+        sessions.delete(sessionId);
+    }
+    res.json({ success: true });
+});
+app.get('/api/auth/check', (req, res) => {
+    const sessionId = req.headers['x-session-id'];
+    if (sessionId && sessions.has(sessionId)) {
+        const session = sessions.get(sessionId);
+        if (Date.now() - session.loginAt < 24 * 60 * 60 * 1000) {
+            return res.json({ authenticated: true, user: session.user });
+        }
+        sessions.delete(sessionId);
+    }
+    res.json({ authenticated: false });
+});
+// ========== API 路由（需要认证）==========
+app.get('/api/status/all', requireAuth, async (req, res) => {
+    // 只返回远程实例状态，不返回本地实例
     await Promise.all(remoteInstances.map(inst => connectGateway(inst)));
     res.json({
-        local: {
-            instance: 'local',
-            name: process.env.INSTANCE_NAME || 'GitHub Codespaces',
-            status: localGateway,
-            version,
-            system: systemInfo,
-            lastSeen: Date.now()
-        },
         remote: remoteInstances.map(i => ({ id: i.id, name: i.name, url: i.url, status: i.status, error: i.error, lastSeen: i.lastSeen }))
     });
 });
-app.get('/api/instances', (req, res) => {
+app.get('/api/instances', requireAuth, (req, res) => {
     res.json(remoteInstances.map(i => ({ id: i.id, name: i.name, url: i.url, status: i.status, error: i.error, lastSeen: i.lastSeen })));
 });
-app.post('/api/instances', async (req, res) => {
+app.post('/api/instances', requireAuth, async (req, res) => {
     const { id, name, url, token } = req.body;
     if (!id || !url)
         return res.status(400).json({ error: 'id 和 url 是必填项' });
@@ -222,7 +249,7 @@ app.post('/api/instances', async (req, res) => {
     await saveInstances();
     res.json(instance);
 });
-app.delete('/api/instances/:id', async (req, res) => {
+app.delete('/api/instances/:id', requireAuth, async (req, res) => {
     const index = remoteInstances.findIndex(i => i.id === req.params.id);
     if (index === -1)
         return res.status(404).json({ error: '实例不存在' });
@@ -233,22 +260,22 @@ app.delete('/api/instances/:id', async (req, res) => {
     await saveInstances();
     res.json({ success: true });
 });
-app.get('/api/instances/:id/status', async (req, res) => {
+app.get('/api/instances/:id/status', requireAuth, async (req, res) => {
     const instance = remoteInstances.find(i => i.id === req.params.id);
     if (!instance)
         return res.status(404).json({ error: '实例不存在' });
     await connectGateway(instance);
     res.json({ id: instance.id, name: instance.name, url: instance.url, status: instance.status, error: instance.error, lastSeen: instance.lastSeen });
 });
-app.get('/api/version/latest', async (req, res) => {
+app.get('/api/version/latest', requireAuth, async (req, res) => {
     const [release, currentVersion] = await Promise.all([getLatestRelease(), getOpenClawVersion()]);
     res.json({
         current: currentVersion,
         latest: release,
-        updateAvailable: release.version !== 'Fetch Failed' && release.version !== 'Rate Limited' && !currentVersion.includes(release.version)
+        updateAvailable: release.version !== 'Fetch Failed' && !currentVersion.includes(release.version)
     });
 });
-app.get('/api/logs', async (req, res) => {
+app.get('/api/logs', requireAuth, async (req, res) => {
     try {
         const { stdout } = await execAsync('tail -n 200 /tmp/openclaw/openclaw-*.log 2>/dev/null || echo "-- No entries --"');
         const formatted = formatLogs(stdout);
@@ -258,7 +285,7 @@ app.get('/api/logs', async (req, res) => {
         res.json({ logs: err.message || '无法获取日志' });
     }
 });
-app.post('/api/gateway/restart', async (req, res) => {
+app.post('/api/gateway/restart', requireAuth, async (req, res) => {
     try {
         await execAsync('openclaw gateway restart 2>&1', { cwd: '/home/codespace/.openclaw/workspace' });
         res.json({ success: true, message: 'Gateway 重启中...' });
@@ -267,7 +294,7 @@ app.post('/api/gateway/restart', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-app.post('/api/update', async (req, res) => {
+app.post('/api/update', requireAuth, async (req, res) => {
     try {
         const { stdout } = await execAsync('openclaw update run 2>&1', { cwd: '/home/codespace/.openclaw/workspace' });
         res.json({ success: true, output: stdout });
@@ -276,7 +303,7 @@ app.post('/api/update', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-app.get('/api/links', (req, res) => {
+app.get('/api/links', requireAuth, (req, res) => {
     res.json({
         github: 'https://github.com/openclaw/openclaw',
         releases: 'https://github.com/openclaw/openclaw/releases',
@@ -295,11 +322,10 @@ async function start() {
     await loadInstances();
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`🦞 OpenClaw Monitor Backend 运行在端口 ${PORT}`);
-        console.log(`   本地：http://localhost:${PORT}`);
+        console.log(`   默认账号：${ADMIN_USER} / ${ADMIN_PASS}`);
         console.log(`   公网：https://3001-organic-spoon-xjprjrg46wq3v6xw.app.github.dev`);
     });
     setInterval(async () => {
-        console.log('🔄 自动检查实例状态...');
         await Promise.all(remoteInstances.map(inst => connectGateway(inst)));
     }, 30000);
 }
