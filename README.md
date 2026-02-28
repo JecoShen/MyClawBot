@@ -18,9 +18,10 @@
 ## ✨ 核心功能
 
 ### 🔐 安全认证
+- 首次访问自动注册账号
 - 用户名密码登录
 - 会话有效期 24 小时
-- 支持自定义账号密码
+- 支持在线修改密码
 
 ### 🖥️ 多实例监控
 - 添加任意数量的 OpenClaw 实例
@@ -114,17 +115,7 @@ npm run build
 
 6. 点击 **提交**
 
-#### 步骤 6：修改默认账号（可选）
-
-1. 在宝塔面板 → **Node.js**
-2. 找到 `openclaw-monitor` 项目 → **设置**
-3. 添加环境变量：
-   - `ADMIN_USER` = `your_username`
-   - `ADMIN_PASS` = `your_password`
-
-4. 点击 **保存** 并 **重启项目**
-
-#### 步骤 7：配置防火墙
+#### 步骤 6：配置防火墙
 
 1. 左侧菜单 → **安全**
 2. 放行端口：
@@ -135,7 +126,7 @@ npm run build
 
 访问：`http://你的域名` 或 `http://你的 IP:3001`
 
-默认账号：`admin` / `admin123`
+**首次访问会自动进入注册页面，创建你的管理员账号。**
 
 ---
 
@@ -170,14 +161,14 @@ docker build -t openclaw-monitor .
 docker run -d \
   --name openclaw-monitor \
   -p 3001:3001 \
-  -e ADMIN_USER=admin \
-  -e ADMIN_PASS=admin123 \
   -v openclaw-data:/app/openclaw-monitor/backend \
   --restart always \
   openclaw-monitor
 ```
 
 访问：`http://你的 IP:3001`
+
+**首次访问会自动进入注册页面，创建你的管理员账号。**
 
 ---
 
@@ -208,6 +199,8 @@ pm2 save
 
 访问：`http://你的 IP:3001`
 
+**首次访问会自动进入注册页面，创建你的管理员账号。**
+
 ---
 
 ### 方式四：Codespaces 体验
@@ -217,31 +210,11 @@ pm2 save
 1. 点击上方按钮在 Codespaces 中打开
 2. 等待服务启动
 3. 访问：`https://3001-你的-Codespaces-ID.app.github.dev`
-4. 登录：`admin` / `admin123`
+4. **首次访问请注册账号**
 
 ---
 
 ## 🔧 配置
-
-### 修改默认账号
-
-**宝塔面板：**
-1. 面板 → Node.js → 项目设置
-2. 添加环境变量：
-   - `ADMIN_USER` = `your_username`
-   - `ADMIN_PASS` = `your_password`
-
-**手动部署：**
-```bash
-export ADMIN_USER=your_username
-export ADMIN_PASS=your_password
-npm start
-```
-
-**Docker：**
-```bash
-docker run -e ADMIN_USER=your_username -e ADMIN_PASS=your_password ...
-```
 
 ### 添加监控实例
 
@@ -262,9 +235,11 @@ docker run -e ADMIN_USER=your_username -e ADMIN_PASS=your_password ...
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
+| `/api/auth/register` | POST | 注册账号 |
 | `/api/auth/login` | POST | 登录 |
 | `/api/auth/logout` | POST | 登出 |
 | `/api/auth/check` | GET | 检查登录状态 |
+| `/api/auth/change-password` | POST | 修改密码 |
 | `/api/instances` | GET | 获取所有实例状态 |
 | `/api/instances` | POST | 添加实例 |
 | `/api/instances/:id` | DELETE | 删除实例 |
@@ -324,7 +299,8 @@ VPS（监控面板） ──────→ 家里宽带（OpenClaw）
 2. **防火墙** - 开放 18789 端口（或你配置的 Gateway 端口）
 3. **Token 认证** - 建议为 Gateway 配置 Token，提高安全性
 4. **HTTPS** - 生产环境建议使用 Nginx 反向代理 + HTTPS（宝塔自动处理）
-5. **备份** - 定期备份 `instances.json` 配置文件
+5. **备份** - 定期备份 `instances.json` 和 `data.json` 配置文件
+6. **账号安全** - 首次访问请注册强密码，妥善保管账号信息
 
 ---
 
@@ -346,6 +322,22 @@ VPS（监控面板） ──────→ 家里宽带（OpenClaw）
 
 ## 📝 更新日志
 
+### v1.3.0 (2026-02-28)
+
+**🎨 UI 全面升级 - 苹果 iOS 毛玻璃风格**
+
+**设计改进**
+- ✅ 毛玻璃效果 (Glassmorphism)
+- ✅ iOS 风格组件
+- ✅ 渐变背景
+- ✅ 流畅动画
+
+**功能改进**
+- ✅ 用户注册制（无默认账号）
+- ✅ 在线修改密码
+- ✅ 用户下拉菜单
+- ✅ 头像首字母显示
+
 ### v1.2.0 (2026-02-28)
 
 **🎉 重大更新 - 重新定位为独立监控产品**
@@ -353,7 +345,6 @@ VPS（监控面板） ──────→ 家里宽带（OpenClaw）
 **新功能**
 - ✅ 用户名密码登录认证
 - ✅ 会话管理（24 小时有效期）
-- ✅ 支持自定义账号密码（环境变量）
 - ✅ 完全移除本地实例概念
 - ✅ 所有实例手动添加
 
@@ -361,7 +352,6 @@ VPS（监控面板） ──────→ 家里宽带（OpenClaw）
 - ✅ 后端不再自动连接任何 Gateway
 - ✅ 更清晰的产品定位
 - ✅ 更适合多实例监控场景
-- ✅ 优化的 UI/UX
 
 **安全**
 - ✅ 所有 API 需要认证
@@ -604,11 +594,12 @@ sudo firewall-cmd --reload
 
 ### 🔧 在监控面板中添加实例
 
-**步骤 1：登录监控面板**
+**步骤 1：注册/登录监控面板**
 
 访问：`http://你的监控面板地址`
 
-账号：`admin` / `admin123`（或自定义的账号）
+- **首次访问**：点击「注册」，创建你的管理员账号
+- **已有账号**：点击「登录」，输入用户名和密码
 
 **步骤 2：进入实例管理**
 
