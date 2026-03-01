@@ -39,14 +39,20 @@ function App() {
       const res = await fetch('/api/auth/status', { headers: sessionId ? { 'X-Session-Id': sessionId } : {} })
       const data = await res.json()
       setAuthStatus(data)
-      if (data.authenticated && sessionId) fetchData()
+      // 如果未启用管理员登录，直接进入主界面
+      if (!data.enableAdminLogin) {
+        setAuthStatus(prev => ({ ...prev, authenticated: true }))
+        fetchData()
+      } else if (data.authenticated && sessionId) {
+        fetchData()
+      }
       setLoading(false)
     } catch (err) { setLoading(false) }
   }
 
   const fetchData = async () => {
-    if (!sessionId) return
-    const headers = { 'X-Session-Id': sessionId }
+    if (!sessionId && authStatus.enableAdminLogin) return
+    const headers: Record<string, string> = sessionId ? { 'X-Session-Id': sessionId } : {}
     try {
       const [instancesRes, versionRes, logsRes, linksRes] = await Promise.all([
         fetch('/api/instances', { headers }), fetch('/api/version/latest', { headers }), fetch('/api/logs', { headers }), fetch('/api/links', { headers })
@@ -63,7 +69,7 @@ function App() {
     try {
       const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(loginForm) })
       const data = await res.json()
-      if (res.ok) { setSessionId(data.sessionId); setUsername(data.username); localStorage.setItem('sessionId', data.sessionId); localStorage.setItem('username', data.username); setAuthStatus({ hasUser: true, authenticated: true, username: data.username }); fetchData() }
+      if (res.ok) { setSessionId(data.sessionId); setUsername(data.username); localStorage.setItem('sessionId', data.sessionId); localStorage.setItem('username', data.username); setAuthStatus({ hasUser: true, authenticated: true, username: data.username, enableAdminLogin: true }); fetchData() }
       else { setFormError(data.error || '用户名或密码错误') }
     } catch (err) { setFormError('网络错误') }
   }
@@ -112,8 +118,8 @@ function App() {
 
   useEffect(() => { if (authStatus.authenticated) { const interval = setInterval(fetchData, 30000); return () => clearInterval(interval) } }, [authStatus.authenticated, sessionId])
 
-  // 登录页面
-  if (!authStatus.authenticated) {
+  // 登录页面（仅当 enableAdminLogin 为 true 且未登录时显示）
+  if (authStatus.enableAdminLogin && !authStatus.authenticated) {
     return (
       <div className={`min-h-screen ios-gradient-dark flex items-center justify-center p-4 relative overflow-hidden ${!isDarkMode ? 'light-mode' : ''}`}>
         <div className="w-full max-w-md relative z-10">
@@ -128,20 +134,13 @@ function App() {
               {formError && <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm">{formError}</div>}
               <button type="submit" className="w-full btn-ios-primary py-3.5 rounded-xl text-white font-medium text-base shadow-lg hover:shadow-xl transition-all">登录</button>
             </form>
-            {!authStatus.enableAdminLogin && (
-              <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-yellow-400 text-xs text-center">
-                <p className="font-medium mb-1">管理员登录未启用</p>
-                <p>首次使用请编辑 backend/config.json</p>
-                <p className="mt-2 font-mono">{"{ \"enableAdminLogin\": true }"}</p>
-              </div>
-            )}
           </div>
         </div>
       </div>
     )
   }
 
-  if (loading) return <div className={`min-h-screen ios-gradient-dark flex items-center justify-center ${!isDarkMode ? 'light-mode' : ''}`}><div className="glass-dark rounded-2xl p-8 text-center"><div className="text-4xl mb-4 animate-pulse">🦞</div><div className="text-white text-lg">加载中...</div></div></div>
+  if (loading) return <div className={`min-h-screen ios-gradient-dark flex items-center justify-center ${!isDarkMode ? 'light-mode' : ''}`}><div className="glass-dark rounded-2xl p-8 text-center"><div className="text-white text-lg">加载中...</div></div></div>
 
   return (
     <div className={`min-h-screen ios-gradient-dark ${!isDarkMode ? 'light-mode' : ''}`}>
@@ -155,20 +154,22 @@ function App() {
               <button onClick={() => setIsDarkMode(!isDarkMode)} className="theme-toggle" title={isDarkMode ? '切换到浅色模式' : '切换到深色模式'}>
                 {isDarkMode ? <span className="text-xl">☀️</span> : <span className="text-xl">🌙</span>}
               </button>
-              <div className="relative">
-                <button onClick={() => setShowMenu(!showMenu)} className="flex items-center gap-2 px-4 py-2 glass rounded-xl hover:bg-white/10 transition-all">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-bold">{username.charAt(0).toUpperCase()}</div>
-                  <span className="text-white text-sm font-medium hidden sm:inline">{username}</span>
-                  <span className={`text-gray-400 transition-transform ${showMenu ? 'rotate-180' : ''}`}>▼</span>
-                </button>
-                {showMenu && (<>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)}></div>
-                  <div className="absolute right-0 mt-2 w-48 dropdown-ios z-50 overflow-hidden animate-fade-in">
-                    <button onClick={() => { setShowPasswordModal(true); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm text-white hover:bg-white/10 transition-colors flex items-center gap-3">修改密码</button>
-                    <button onClick={handleLogout} className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-3 border-t border-white/10">退出登录</button>
-                  </div>
-                </>)}
-              </div>
+              {authStatus.enableAdminLogin && (
+                <div className="relative">
+                  <button onClick={() => setShowMenu(!showMenu)} className="flex items-center gap-2 px-4 py-2 glass rounded-xl hover:bg-white/10 transition-all">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-bold">{username.charAt(0).toUpperCase()}</div>
+                    <span className="text-white text-sm font-medium hidden sm:inline">{username}</span>
+                    <span className={`text-gray-400 transition-transform ${showMenu ? 'rotate-180' : ''}`}>▼</span>
+                  </button>
+                  {showMenu && (<>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)}></div>
+                    <div className="absolute right-0 mt-2 w-48 dropdown-ios z-50 overflow-hidden animate-fade-in">
+                      <button onClick={() => { setShowPasswordModal(true); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm text-white hover:bg-white/10 transition-colors flex items-center gap-3">修改密码</button>
+                      <button onClick={handleLogout} className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-3 border-t border-white/10">退出登录</button>
+                    </div>
+                  </>)}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -292,7 +293,7 @@ function App() {
           </div>
         )}
       </main>
-      {showPasswordModal && (
+      {showPasswordModal && authStatus.enableAdminLogin && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowPasswordModal(false)}>
           <div className="modal-ios p-6 max-w-md w-full animate-fade-in" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-xl font-bold text-white mb-6">修改密码</h3>
