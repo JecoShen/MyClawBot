@@ -8,9 +8,7 @@ interface NewInstanceForm { id: string; name: string; url: string; token: string
 function App() {
   const [authStatus, setAuthStatus] = useState<{ hasUser: boolean; authenticated: boolean; username?: string }>({ hasUser: false, authenticated: false })
   const [loading, setLoading] = useState(true)
-  const [isRegister, setIsRegister] = useState(true)
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
-  const [registerForm, setRegisterForm] = useState({ username: '', password: '', confirmPassword: '' })
   const [formError, setFormError] = useState('')
   const [sessionId, setSessionId] = useState<string>(() => localStorage.getItem('sessionId') || '')
   const [username, setUsername] = useState<string>(() => localStorage.getItem('username') || '')
@@ -29,15 +27,9 @@ function App() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [newInstance, setNewInstance] = useState<NewInstanceForm>({ id: '', name: '', url: '', token: '' })
 
-  // 主题切换
   useEffect(() => {
-    if (isDarkMode) {
-      document.body.classList.remove('light-mode')
-      localStorage.setItem('theme', 'dark')
-    } else {
-      document.body.classList.add('light-mode')
-      localStorage.setItem('theme', 'light')
-    }
+    if (isDarkMode) { document.body.classList.remove('light-mode'); localStorage.setItem('theme', 'dark'); }
+    else { document.body.classList.add('light-mode'); localStorage.setItem('theme', 'light'); }
   }, [isDarkMode])
 
   useEffect(() => { checkAuth() }, [])
@@ -66,24 +58,13 @@ function App() {
     } catch (err) { console.error('Failed to fetch data:', err) }
   }
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault(); setFormError('')
-    if (registerForm.password !== registerForm.confirmPassword) { setFormError('两次输入的密码不一致'); return }
-    try {
-      const res = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: registerForm.username, password: registerForm.password }) })
-      const data = await res.json()
-      if (res.ok) { setSessionId(data.sessionId); setUsername(data.username); localStorage.setItem('sessionId', data.sessionId); localStorage.setItem('username', data.username); setAuthStatus({ hasUser: true, authenticated: true, username: data.username }); fetchData() }
-      else { setFormError(data.error || '注册失败') }
-    } catch (err) { setFormError('网络错误') }
-  }
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setFormError('')
     try {
       const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(loginForm) })
       const data = await res.json()
       if (res.ok) { setSessionId(data.sessionId); setUsername(data.username); localStorage.setItem('sessionId', data.sessionId); localStorage.setItem('username', data.username); setAuthStatus({ hasUser: true, authenticated: true, username: data.username }); fetchData() }
-      else { setFormError(data.error || '登录失败') }
+      else { setFormError(data.error || '用户名或密码错误') }
     } catch (err) { setFormError('网络错误') }
   }
 
@@ -131,7 +112,7 @@ function App() {
 
   useEffect(() => { if (authStatus.authenticated) { const interval = setInterval(fetchData, 30000); return () => clearInterval(interval) } }, [authStatus.authenticated, sessionId])
 
-  // 登录/注册页面
+  // 登录页面
   if (!authStatus.authenticated) {
     return (
       <div className={`min-h-screen ios-gradient-dark flex items-center justify-center p-4 relative overflow-hidden ${!isDarkMode ? 'light-mode' : ''}`}>
@@ -140,21 +121,17 @@ function App() {
             <div className="text-center mb-8">
               <div className="w-20 h-20 mx-auto mb-4 rounded-2xl glass flex items-center justify-center text-4xl">🦞</div>
               <h1 className="text-2xl font-bold text-white">OpenClaw 监控面板</h1>
-              <p className="text-gray-400 mt-2">{authStatus.hasUser ? '欢迎回来' : '首次使用请注册'}</p>
+              <p className="text-gray-400 mt-2">请使用管理员账号登录</p>
             </div>
-            {authStatus.hasUser && (
-              <div className="flex mb-6 p-1 glass rounded-xl">
-                <button onClick={() => setIsRegister(false)} className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all ${!isRegister ? 'bg-ios-blue text-white shadow-ios' : 'text-gray-400 hover:text-white'}`}>登录</button>
-                <button onClick={() => setIsRegister(true)} className={`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all ${isRegister ? 'bg-ios-blue text-white shadow-ios' : 'text-gray-400 hover:text-white'}`}>注册</button>
-              </div>
-            )}
-            <form onSubmit={isRegister ? handleRegister : handleLogin} className="space-y-4">
-              <div><label className="block text-sm text-gray-400 mb-2 ml-1">用户名</label><input type="text" value={isRegister ? registerForm.username : loginForm.username} onChange={(e) => isRegister ? setRegisterForm({ ...registerForm, username: e.target.value }) : setLoginForm({ ...loginForm, username: e.target.value })} className="w-full input-ios text-white" placeholder="至少 3 个字符" minLength={3} required /></div>
-              <div><label className="block text-sm text-gray-400 mb-2 ml-1">密码</label><input type="password" value={isRegister ? registerForm.password : loginForm.password} onChange={(e) => isRegister ? setRegisterForm({ ...registerForm, password: e.target.value }) : setLoginForm({ ...loginForm, password: e.target.value })} className="w-full input-ios text-white" placeholder="至少 6 个字符" minLength={6} required /></div>
-              {isRegister && <div><label className="block text-sm text-gray-400 mb-2 ml-1">确认密码</label><input type="password" value={registerForm.confirmPassword} onChange={(e) => setRegisterForm({ ...registerForm, confirmPassword: e.target.value })} className="w-full input-ios text-white" placeholder="再次输入密码" required /></div>}
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div><label className="block text-sm text-gray-400 mb-2 ml-1">用户名</label><input type="text" value={loginForm.username} onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full input-ios text-white" placeholder="请输入用户名" required /></div>
+              <div><label className="block text-sm text-gray-400 mb-2 ml-1">密码</label><input type="password" value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full input-ios text-white" placeholder="请输入密码" required /></div>
               {formError && <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm">{formError}</div>}
-              <button type="submit" className="w-full btn-ios-primary py-3.5 rounded-xl text-white font-medium text-base shadow-lg hover:shadow-xl transition-all">{isRegister ? '注册并登录' : '登录'}</button>
+              <button type="submit" className="w-full btn-ios-primary py-3.5 rounded-xl text-white font-medium text-base shadow-lg hover:shadow-xl transition-all">登录</button>
             </form>
+            <div className="mt-6 text-center text-xs text-gray-500">
+              <p>首次使用请编辑 backend/config.json 配置管理员账号</p>
+            </div>
           </div>
         </div>
       </div>
@@ -165,7 +142,6 @@ function App() {
 
   return (
     <div className={`min-h-screen ios-gradient-dark ${!isDarkMode ? 'light-mode' : ''}`}>
-      {/* 导航栏 */}
       <header className="nav-glass sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
@@ -174,7 +150,6 @@ function App() {
               <div><h1 className="text-lg font-bold text-white">OpenClaw</h1><p className="text-xs text-gray-400">多实例监控</p></div>
             </div>
             <div className="flex items-center gap-3">
-              {/* 主题切换按钮 */}
               <button onClick={() => setIsDarkMode(!isDarkMode)} className="theme-toggle" title={isDarkMode ? '切换到浅色模式' : '切换到深色模式'}>
                 {isDarkMode ? <span className="text-xl">☀️</span> : <span className="text-xl">🌙</span>}
               </button>

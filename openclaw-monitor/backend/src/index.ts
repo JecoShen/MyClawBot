@@ -6,6 +6,7 @@ import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import fs from 'fs';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -13,6 +14,37 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
+
+// 配置文件路径
+const CONFIG_FILE = path.join(__dirname, '../config.json');
+const DEFAULT_CONFIG = {
+  adminUser: '',
+  adminPass: '',
+  allowRegister: false
+};
+
+// 加载配置
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
+      return { ...DEFAULT_CONFIG, ...JSON.parse(data) };
+    }
+  } catch (err) {
+    console.error('Failed to load config:', err);
+  }
+  return DEFAULT_CONFIG;
+}
+
+// 保存配置
+function saveConfig(config: typeof DEFAULT_CONFIG) {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+let config = loadConfig();
+
+app.use(cors());
+app.use(express.json());
 
 // 数据文件
 const DATA_FILE = path.join(__dirname, '../data.json');
@@ -169,7 +201,7 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
 // ========== 认证路由 ==========
 
 app.get('/api/auth/status', async (req, res) => {
-  const hasUser = appData.user !== null;
+  const hasUser = appData.user !== null || (config.adminUser && config.adminPass);
   const sessionId = req.headers['x-session-id'] as string;
   
   if (sessionId && sessions.has(sessionId)) {
@@ -180,48 +212,30 @@ app.get('/api/auth/status', async (req, res) => {
     sessions.delete(sessionId);
   }
   
-  res.json({ hasUser, authenticated: false });
+  res.json({ hasUser, authenticated: false, allowRegister: config.allowRegister });
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const { username, password } = req.body;
-  
-  if (!username || !password) {
-    return res.status(400).json({ error: '用户名和密码不能为空' });
-  }
-  
-  if (username.length < 3) {
-    return res.status(400).json({ error: '用户名至少 3 个字符' });
-  }
-  
-  if (password.length < 6) {
-    return res.status(400).json({ error: '密码至少 6 个字符' });
-  }
-  
-  if (appData.user) {
-    return res.status(400).json({ error: '用户已存在，请登录' });
-  }
-  
-  appData.user = {
-    username,
-    passwordHash: hashPassword(password),
-    createdAt: Date.now()
-  };
-  
-  await saveData();
-  
-  // 自动登录
-  const sessionId = crypto.randomBytes(32).toString('hex');
-  sessions.set(sessionId, { username, loginAt: Date.now() });
-  
-  res.json({ success: true, sessionId, username });
+  // 只允许通过配置文件注册，不允许在线注册
+  res.status(403).json({ error: '注册已关闭，请在 config.json 中配置管理员账号' });
 });
 
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   
+  // 优先使用配置文件中的账号
+  if (config.adminUser && config.adminPass) {
+    if (username !== config.adminUser || hashPassword(password) !== config.adminPass) {
+      return res.status(401).json({ error: '用户名或密码错误' });
+    }
+    const sessionId = crypto.randomBytes(32).toString('hex');
+    sessions.set(sessionId, { username, loginAt: Date.now() });
+    return res.json({ success: true, sessionId, username });
+  }
+  
+  // 兼容旧数据
   if (!appData.user) {
-    return res.status(400).json({ error: '请先注册账号' });
+    return res.status(400).json({ error: '请先在 config.json 中配置管理员账号' });
   }
   
   if (username !== appData.user.username) {
@@ -262,6 +276,11 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   const sessionId = req.headers['x-session-id'] as string;
   const session = sessions.get(sessionId!)!;
   
+  // 如果使用配置文件，不允许在线修改密码
+  if (config.adminUser && config.adminPass) {
+    return res.status(403).json({ error: '配置文件模式下，请直接在 config.json 中修改密码' });
+  }
+  
   if (!appData.user) {
     return res.status(400).json({ error: '用户不存在' });
   }
@@ -277,6 +296,14 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   await saveData();
   
   res.json({ success: true });
+});
+
+// 获取/更新配置（需要认证）
+app.get('/api/config', requireAuth, (req, res) => {
+  res.json({
+    adminUser: config.adminUser ? config.adminUser.substring(0, 3) + '***' : '',
+    allowRegister: config.allowRegister
+  });
 });
 
 // ========== API 路由（需要认证）==========
@@ -343,6 +370,16 @@ async function start() {
   await loadData();
   await loadInstances();
   
+  // 检查配置
+  if (!config.adminUser || !config.adminPass) {
+    console.log('');
+    console.log('⚠️  警告：未在 config.json 中配置管理员账号');
+    console.log('📝 请编辑 backend/config.json 文件，设置 adminUser 和 adminPass');
+    console.log('📄 示例：{"adminUser": "your_username", "adminPass": "your_password_hash"}');
+    console.log('💡 密码需要使用 SHA256 哈希，可使用：echo -n "your_password" | sha256sum');
+    console.log('');
+  }
+  
   app.listen(PORT, '0.0.0.0', () => {
     console.log('');
     console.log('🦞 OpenClaw 监控面板 已启动');
@@ -350,7 +387,7 @@ async function start() {
     console.log(`📡 端口：${PORT}`);
     console.log(`🌐 公网：https://3001-organic-spoon-xjprjrg46wq3v6xw.app.github.dev`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('💡 首次访问请注册账号');
+    console.log('🔐 请使用 config.json 中配置的管理员账号登录');
     console.log('');
   });
   

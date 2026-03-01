@@ -12,16 +12,18 @@
 - ✅ 监控任意位置的 OpenClaw 实例（家里、公司、其他 VPS）
 - ✅ 即使某个 OpenClaw 实例挂了，监控面板依然在线
 - ✅ 一个面板管理所有实例，状态一目了然
+- ✅ **配置文件设置管理员账号，安全私密**
 
 ---
 
 ## ✨ 核心功能
 
 ### 🔐 安全认证
-- 首次访问自动注册账号
+- **配置文件设置管理员账号**
 - 用户名密码登录
 - 会话有效期 24 小时
-- 支持在线修改密码
+- 支持在线修改密码（非配置文件模式）
+- **无公开注册，防止未授权访问**
 
 ### 🖥️ 多实例监控
 - 添加任意数量的 OpenClaw 实例
@@ -35,11 +37,10 @@
 - 最后检查时间
 - 错误信息显示
 
-### 🔗 官方资源
-- GitHub 仓库
-- 官方文档
-- Discord 社区
-- ClawHub 技能市场
+### 🌓 双主题模式
+- 深色/浅色模式切换
+- 偏好自动保存
+- iOS 毛玻璃风格 UI
 
 ---
 
@@ -82,13 +83,52 @@ cd frontend
 npm install --registry=https://registry.npmmirror.com
 npm run build
 
-# 安装后端依赖
+# 安装后端依赖并构建
 cd ../backend
 npm install --registry=https://registry.npmmirror.com
 npm run build
 ```
 
-#### 步骤 4：配置 Node.js 项目
+#### 步骤 4：配置管理员账号
+
+1. 编辑 `backend/config.json` 文件：
+
+```bash
+cd backend
+nano config.json
+```
+
+2. 填写管理员账号：
+
+```json
+{
+  "adminUser": "your_username",
+  "adminPass": "your_password_sha256_hash",
+  "allowRegister": false
+}
+```
+
+**生成密码哈希：**
+```bash
+# Linux/macOS
+echo -n "your_password" | sha256sum
+
+# 或使用在线工具：https://sha256online.com/
+```
+
+**示例：**
+```json
+{
+  "adminUser": "admin",
+  "adminPass": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8",
+  "allowRegister": false
+}
+```
+（密码 `password` 的哈希）
+
+3. 保存并退出（`Ctrl+O` → `Enter` → `Ctrl+X`）
+
+#### 步骤 5：配置 Node.js 项目
 
 1. 左侧菜单 → **Node.js**
 2. 点击 **添加 Node.js 项目**
@@ -101,7 +141,7 @@ npm run build
 
 4. 点击 **提交**
 
-#### 步骤 5：配置反向代理
+#### 步骤 6：配置反向代理
 
 1. 左侧菜单 → **网站**
 2. 点击刚创建的网站 → **设置**
@@ -115,7 +155,7 @@ npm run build
 
 6. 点击 **提交**
 
-#### 步骤 6：配置防火墙
+#### 步骤 7：配置防火墙
 
 1. 左侧菜单 → **安全**
 2. 放行端口：
@@ -126,7 +166,7 @@ npm run build
 
 访问：`http://你的域名` 或 `http://你的 IP:3001`
 
-**首次访问会自动进入注册页面，创建你的管理员账号。**
+**使用 config.json 中配置的管理员账号登录。**
 
 ---
 
@@ -145,6 +185,9 @@ COPY . .
 # 安装依赖并构建
 RUN cd openclaw-monitor/frontend && npm install --registry=https://registry.npmmirror.com && npm run build
 RUN cd openclaw-monitor/backend && npm install --registry=https://registry.npmmirror.com && npm run build
+
+# 创建配置文件
+RUN echo '{"adminUser":"admin","adminPass":"5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8","allowRegister":false}' > openclaw-monitor/backend/config.json
 
 # 暴露端口
 EXPOSE 3001
@@ -168,7 +211,7 @@ docker run -d \
 
 访问：`http://你的 IP:3001`
 
-**首次访问会自动进入注册页面，创建你的管理员账号。**
+**默认账号：`admin` / `password`（首次登录后请修改 config.json）**
 
 ---
 
@@ -187,8 +230,18 @@ cd ../frontend && npm install
 cd ../frontend && npm run build
 cd ../backend && npm run build
 
-# 4. 启动服务
+# 4. 配置管理员账号
 cd ../backend
+nano config.json
+
+# 填写：
+# {
+#   "adminUser": "your_username",
+#   "adminPass": "your_password_sha256_hash",
+#   "allowRegister": false
+# }
+
+# 5. 启动服务
 npm start
 
 # 或使用 PM2 守护进程
@@ -199,8 +252,6 @@ pm2 save
 
 访问：`http://你的 IP:3001`
 
-**首次访问会自动进入注册页面，创建你的管理员账号。**
-
 ---
 
 ### 方式四：Codespaces 体验
@@ -210,7 +261,7 @@ pm2 save
 1. 点击上方按钮在 Codespaces 中打开
 2. 等待服务启动
 3. 访问：`https://3001-你的-Codespaces-ID.app.github.dev`
-4. **首次访问请注册账号**
+4. **首次使用请编辑 `backend/config.json` 配置管理员账号**
 
 ---
 
@@ -418,14 +469,49 @@ sudo firewall-cmd --reload
 
 ## 🔧 配置
 
+### 管理员账号配置
+
+编辑 `backend/config.json` 文件：
+
+```json
+{
+  "adminUser": "your_username",
+  "adminPass": "your_password_sha256_hash",
+  "allowRegister": false
+}
+```
+
+**字段说明：**
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| `adminUser` | 管理员用户名 | `admin` |
+| `adminPass` | 密码的 SHA256 哈希 | `5e884898da...` |
+| `allowRegister` | 是否允许在线注册（已废弃，始终为 false） | `false` |
+
+**生成密码哈希：**
+
+```bash
+# Linux/macOS
+echo -n "your_password" | sha256sum
+
+# 在线工具
+# https://sha256online.com/
+```
+
+**修改密码：**
+
+直接编辑 `config.json` 文件，修改 `adminPass` 为新的密码哈希，然后重启服务。
+
+---
+
 ### 添加监控实例
 
-**步骤 1：注册/登录监控面板**
+**步骤 1：登录监控面板**
 
 访问：`http://你的监控面板地址`
 
-- **首次访问**：点击「注册」，创建你的管理员账号
-- **已有账号**：点击「登录」，输入用户名和密码
+使用 `config.json` 中配置的管理员账号登录
 
 **步骤 2：进入实例管理**
 
@@ -458,11 +544,10 @@ sudo firewall-cmd --reload
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/api/auth/register` | POST | 注册账号 |
 | `/api/auth/login` | POST | 登录 |
 | `/api/auth/logout` | POST | 登出 |
 | `/api/auth/check` | GET | 检查登录状态 |
-| `/api/auth/change-password` | POST | 修改密码 |
+| `/api/auth/change-password` | POST | 修改密码（非配置文件模式） |
 | `/api/instances` | GET | 获取所有实例状态 |
 | `/api/instances` | POST | 添加实例 |
 | `/api/instances/:id` | DELETE | 删除实例 |
@@ -522,8 +607,8 @@ VPS（监控面板） ──────→ 家里宽带（OpenClaw）
 2. **防火墙** - 开放 18789 端口（或你配置的 Gateway 端口）
 3. **Token 认证** - 建议为 Gateway 配置 Token，提高安全性
 4. **HTTPS** - 生产环境建议使用 Nginx 反向代理 + HTTPS（宝塔自动处理）
-5. **备份** - 定期备份 `instances.json` 和 `data.json` 配置文件
-6. **账号安全** - 首次访问请注册强密码，妥善保管账号信息
+5. **备份** - 定期备份 `instances.json`、`data.json` 和 `config.json` 配置文件
+6. **账号安全** - 使用强密码，妥善保管 `config.json` 文件，不要泄露
 
 ---
 
@@ -545,6 +630,21 @@ VPS（监控面板） ──────→ 家里宽带（OpenClaw）
 
 ## 📝 更新日志
 
+### v1.4.0 (2026-03-01)
+
+**🔐 安全升级 - 配置文件认证模式**
+
+**新功能**
+- ✅ config.json 配置管理员账号
+- ✅ 关闭公开注册，防止未授权访问
+- ✅ 一个面板绑定一个管理员账号
+- ✅ 支持 SHA256 密码哈希
+
+**改进**
+- ✅ 登录页面移除注册按钮
+- ✅ 域名绑定后防止泄露被访问
+- ✅ 首次启动提示配置管理员账号
+
 ### v1.3.0 (2026-02-28)
 
 **🎨 UI 全面升级 - 苹果 iOS 毛玻璃风格**
@@ -552,12 +652,11 @@ VPS（监控面板） ──────→ 家里宽带（OpenClaw）
 **设计改进**
 - ✅ 毛玻璃效果 (Glassmorphism)
 - ✅ iOS 风格组件
-- ✅ 渐变背景
+- ✅ 双主题模式（深色/浅色）
 - ✅ 流畅动画
 
 **功能改进**
-- ✅ 用户注册制（无默认账号）
-- ✅ 在线修改密码
+- ✅ 主题切换按钮
 - ✅ 用户下拉菜单
 - ✅ 头像首字母显示
 
@@ -611,4 +710,4 @@ MIT License
 
 **🦞 让 OpenClaw 监控变得简单！**
 
-*最后更新：2026-02-28*
+*最后更新：2026-03-01*
