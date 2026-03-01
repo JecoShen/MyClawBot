@@ -17,6 +17,10 @@ function App() {
   const [showMenu, setShowMenu] = useState(false)
   const [passwordForm, setPasswordForm] = useState({ oldPassword: '', newPassword: '', confirmNew: '' })
   const [showPasswordModal, setShowPasswordModal] = useState(false)
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('theme')
+    return saved !== 'light'
+  })
   const [instances, setInstances] = useState<RemoteInstance[]>([])
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null)
   const [logs, setLogs] = useState<string>('')
@@ -24,6 +28,17 @@ function App() {
   const [activeTab, setActiveTab] = useState<'overview' | 'instances' | 'logs' | 'update' | 'links'>('overview')
   const [showAddForm, setShowAddForm] = useState(false)
   const [newInstance, setNewInstance] = useState<NewInstanceForm>({ id: '', name: '', url: '', token: '' })
+
+  // 主题切换
+  useEffect(() => {
+    if (isDarkMode) {
+      document.body.classList.remove('light-mode')
+      localStorage.setItem('theme', 'dark')
+    } else {
+      document.body.classList.add('light-mode')
+      localStorage.setItem('theme', 'light')
+    }
+  }, [isDarkMode])
 
   useEffect(() => { checkAuth() }, [])
 
@@ -116,11 +131,10 @@ function App() {
 
   useEffect(() => { if (authStatus.authenticated) { const interval = setInterval(fetchData, 30000); return () => clearInterval(interval) } }, [authStatus.authenticated, sessionId])
 
+  // 登录/注册页面
   if (!authStatus.authenticated) {
     return (
-      <div className="min-h-screen ios-gradient-dark flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl animate-pulse-slow"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-pulse-slow" style={{ animationDelay: '1s' }}></div>
+      <div className={`min-h-screen ios-gradient-dark flex items-center justify-center p-4 relative overflow-hidden ${!isDarkMode ? 'light-mode' : ''}`}>
         <div className="w-full max-w-md relative z-10">
           <div className="glass-dark rounded-3xl p-8 shadow-glass animate-fade-in">
             <div className="text-center mb-8">
@@ -147,14 +161,11 @@ function App() {
     )
   }
 
-  if (loading) return <div className="min-h-screen ios-gradient-dark flex items-center justify-center"><div className="glass-dark rounded-2xl p-8 text-center"><div className="text-4xl mb-4 animate-pulse">🦞</div><div className="text-white text-lg">加载中...</div></div></div>
+  if (loading) return <div className={`min-h-screen ios-gradient-dark flex items-center justify-center ${!isDarkMode ? 'light-mode' : ''}`}><div className="glass-dark rounded-2xl p-8 text-center"><div className="text-4xl mb-4 animate-pulse">🦞</div><div className="text-white text-lg">加载中...</div></div></div>
 
   return (
-    <div className="min-h-screen ios-gradient-dark">
-      <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl"></div>
-      </div>
+    <div className={`min-h-screen ios-gradient-dark ${!isDarkMode ? 'light-mode' : ''}`}>
+      {/* 导航栏 */}
       <header className="nav-glass sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
@@ -162,19 +173,25 @@ function App() {
               <div className="w-10 h-10 rounded-xl glass flex items-center justify-center text-2xl">🦞</div>
               <div><h1 className="text-lg font-bold text-white">OpenClaw</h1><p className="text-xs text-gray-400">多实例监控</p></div>
             </div>
-            <div className="relative">
-              <button onClick={() => setShowMenu(!showMenu)} className="flex items-center gap-2 px-4 py-2 glass rounded-xl hover:bg-white/10 transition-all">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-bold">{username.charAt(0).toUpperCase()}</div>
-                <span className="text-white text-sm font-medium hidden sm:inline">{username}</span>
-                <span className={`text-gray-400 transition-transform ${showMenu ? 'rotate-180' : ''}`}>▼</span>
+            <div className="flex items-center gap-3">
+              {/* 主题切换按钮 */}
+              <button onClick={() => setIsDarkMode(!isDarkMode)} className="theme-toggle" title={isDarkMode ? '切换到浅色模式' : '切换到深色模式'}>
+                {isDarkMode ? <span className="text-xl">☀️</span> : <span className="text-xl">🌙</span>}
               </button>
-              {showMenu && (<>
-                <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)}></div>
-                <div className="absolute right-0 mt-2 w-48 dropdown-ios z-50 overflow-hidden animate-fade-in">
-                  <button onClick={() => { setShowPasswordModal(true); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm text-white hover:bg-white/10 transition-colors flex items-center gap-3">🔑 修改密码</button>
-                  <button onClick={handleLogout} className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-3 border-t border-white/10">🚪 退出登录</button>
-                </div>
-              </>)}
+              <div className="relative">
+                <button onClick={() => setShowMenu(!showMenu)} className="flex items-center gap-2 px-4 py-2 glass rounded-xl hover:bg-white/10 transition-all">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm font-bold">{username.charAt(0).toUpperCase()}</div>
+                  <span className="text-white text-sm font-medium hidden sm:inline">{username}</span>
+                  <span className={`text-gray-400 transition-transform ${showMenu ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+                {showMenu && (<>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)}></div>
+                  <div className="absolute right-0 mt-2 w-48 dropdown-ios z-50 overflow-hidden animate-fade-in">
+                    <button onClick={() => { setShowPasswordModal(true); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm text-white hover:bg-white/10 transition-colors flex items-center gap-3">🔑 修改密码</button>
+                    <button onClick={handleLogout} className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-3 border-t border-white/10">🚪 退出登录</button>
+                  </div>
+                </>)}
+              </div>
             </div>
           </div>
         </div>

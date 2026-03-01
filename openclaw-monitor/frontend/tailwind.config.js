@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -30,6 +31,7 @@ export default {
       },
       boxShadow: {
         'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
+        'glass-light': '0 8px 32px 0 rgba(0, 0, 0, 0.1)',
         'ios': '0 2px 10px rgba(0, 0, 0, 0.1)',
       }
     },
