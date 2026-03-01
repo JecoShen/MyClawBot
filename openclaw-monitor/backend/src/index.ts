@@ -18,6 +18,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 // 配置文件路径
 const CONFIG_FILE = path.join(__dirname, '../config.json');
 const DEFAULT_CONFIG = {
+  enableAdminLogin: false,
   adminUser: '',
   adminPass: '',
   allowRegister: false
@@ -48,9 +49,6 @@ app.use(express.json());
 
 // 数据文件
 const DATA_FILE = path.join(__dirname, '../data.json');
-
-app.use(cors());
-app.use(express.json());
 
 // 会话存储
 const sessions: Map<string, { username: string; loginAt: number }> = new Map();
@@ -201,7 +199,7 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
 // ========== 认证路由 ==========
 
 app.get('/api/auth/status', async (req, res) => {
-  const hasUser = appData.user !== null || (config.adminUser && config.adminPass);
+  const hasUser = (config.enableAdminLogin && config.adminUser && config.adminPass) || appData.user !== null;
   const sessionId = req.headers['x-session-id'] as string;
   
   if (sessionId && sessions.has(sessionId)) {
@@ -212,18 +210,27 @@ app.get('/api/auth/status', async (req, res) => {
     sessions.delete(sessionId);
   }
   
-  res.json({ hasUser, authenticated: false, allowRegister: config.allowRegister });
+  res.json({ 
+    hasUser, 
+    authenticated: false, 
+    allowRegister: false,
+    enableAdminLogin: config.enableAdminLogin
+  });
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  // 只允许通过配置文件注册，不允许在线注册
-  res.status(403).json({ error: '注册已关闭，请在 config.json 中配置管理员账号' });
+  res.status(403).json({ error: '注册已关闭' });
 });
 
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   
-  // 优先使用配置文件中的账号
+  // 检查管理员登录是否启用
+  if (!config.enableAdminLogin) {
+    return res.status(403).json({ error: '管理员登录未启用，请在 config.json 中设置 enableAdminLogin: true' });
+  }
+  
+  // 使用配置文件中的账号
   if (config.adminUser && config.adminPass) {
     if (username !== config.adminUser || hashPassword(password) !== config.adminPass) {
       return res.status(401).json({ error: '用户名或密码错误' });
@@ -235,7 +242,7 @@ app.post('/api/auth/login', async (req, res) => {
   
   // 兼容旧数据
   if (!appData.user) {
-    return res.status(400).json({ error: '请先在 config.json 中配置管理员账号' });
+    return res.status(400).json({ error: '请先在 config.json 中配置管理员账号并启用登录' });
   }
   
   if (username !== appData.user.username) {
@@ -277,7 +284,7 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   const session = sessions.get(sessionId!)!;
   
   // 如果使用配置文件，不允许在线修改密码
-  if (config.adminUser && config.adminPass) {
+  if (config.enableAdminLogin && config.adminUser && config.adminPass) {
     return res.status(403).json({ error: '配置文件模式下，请直接在 config.json 中修改密码' });
   }
   
@@ -285,25 +292,15 @@ app.post('/api/auth/change-password', requireAuth, async (req, res) => {
     return res.status(400).json({ error: '用户不存在' });
   }
   
-  // 验证旧密码
   const oldPasswordHash = hashPassword(oldPassword);
   if (oldPasswordHash !== appData.user.passwordHash) {
     return res.status(401).json({ error: '原密码错误' });
   }
   
-  // 更新密码
   appData.user.passwordHash = hashPassword(newPassword);
   await saveData();
   
   res.json({ success: true });
-});
-
-// 获取/更新配置（需要认证）
-app.get('/api/config', requireAuth, (req, res) => {
-  res.json({
-    adminUser: config.adminUser ? config.adminUser.substring(0, 3) + '***' : '',
-    allowRegister: config.allowRegister
-  });
 });
 
 // ========== API 路由（需要认证）==========
@@ -371,12 +368,18 @@ async function start() {
   await loadInstances();
   
   // 检查配置
-  if (!config.adminUser || !config.adminPass) {
+  if (config.enableAdminLogin && (!config.adminUser || !config.adminPass)) {
     console.log('');
-    console.log('⚠️  警告：未在 config.json 中配置管理员账号');
-    console.log('📝 请编辑 backend/config.json 文件，设置 adminUser 和 adminPass');
-    console.log('📄 示例：{"adminUser": "your_username", "adminPass": "your_password_hash"}');
-    console.log('💡 密码需要使用 SHA256 哈希，可使用：echo -n "your_password" | sha256sum');
+    console.log('⚠️  警告：enableAdminLogin 已启用，但未配置 adminUser 和 adminPass');
+    console.log('📝 请编辑 backend/config.json 文件，设置管理员账号');
+    console.log('');
+  }
+  
+  if (!config.enableAdminLogin && !appData.user) {
+    console.log('');
+    console.log('📝 提示：管理员登录未启用');
+    console.log('🔐 如需启用，请编辑 backend/config.json：');
+    console.log('   { "enableAdminLogin": true, "adminUser": "your_username", "adminPass": "your_password_hash" }');
     console.log('');
   }
   
@@ -387,7 +390,11 @@ async function start() {
     console.log(`📡 端口：${PORT}`);
     console.log(`🌐 公网：https://3001-organic-spoon-xjprjrg46wq3v6xw.app.github.dev`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🔐 请使用 config.json 中配置的管理员账号登录');
+    if (config.enableAdminLogin) {
+      console.log('🔐 管理员登录已启用，请使用 config.json 中配置的账号登录');
+    } else {
+      console.log('🔒 管理员登录未启用，请在 config.json 中设置 enableAdminLogin: true');
+    }
     console.log('');
   });
   

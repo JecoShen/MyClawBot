@@ -1,4 +1,5 @@
 {
+  "enableAdminLogin": false,
   "adminUser": "your_username",
   "adminPass": "your_password_sha256_hash",
   "allowRegister": false

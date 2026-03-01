@@ -1,4 +1,5 @@
 {
+  "enableAdminLogin": false,
   "adminUser": "",
   "adminPass": "",
   "allowRegister": false

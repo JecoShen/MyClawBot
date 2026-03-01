@@ -6,7 +6,7 @@ interface OfficialLinks { github: string; releases: string; docs: string; discor
 interface NewInstanceForm { id: string; name: string; url: string; token: string; }
 
 function App() {
-  const [authStatus, setAuthStatus] = useState<{ hasUser: boolean; authenticated: boolean; username?: string }>({ hasUser: false, authenticated: false })
+  const [authStatus, setAuthStatus] = useState<{ hasUser: boolean; authenticated: boolean; username?: string; enableAdminLogin?: boolean }>({ hasUser: false, authenticated: false })
   const [loading, setLoading] = useState(true)
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
   const [formError, setFormError] = useState('')
@@ -119,7 +119,6 @@ function App() {
         <div className="w-full max-w-md relative z-10">
           <div className="glass-dark rounded-3xl p-8 shadow-glass animate-fade-in">
             <div className="text-center mb-8">
-              <div className="w-20 h-20 mx-auto mb-4 rounded-2xl glass flex items-center justify-center text-4xl">🦞</div>
               <h1 className="text-2xl font-bold text-white">OpenClaw 监控面板</h1>
               <p className="text-gray-400 mt-2">请使用管理员账号登录</p>
             </div>
@@ -129,9 +128,13 @@ function App() {
               {formError && <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-3 text-red-400 text-sm">{formError}</div>}
               <button type="submit" className="w-full btn-ios-primary py-3.5 rounded-xl text-white font-medium text-base shadow-lg hover:shadow-xl transition-all">登录</button>
             </form>
-            <div className="mt-6 text-center text-xs text-gray-500">
-              <p>首次使用请编辑 backend/config.json 配置管理员账号</p>
-            </div>
+            {!authStatus.enableAdminLogin && (
+              <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-yellow-400 text-xs text-center">
+                <p className="font-medium mb-1">管理员登录未启用</p>
+                <p>首次使用请编辑 backend/config.json</p>
+                <p className="mt-2 font-mono">{"{ \"enableAdminLogin\": true }"}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -146,7 +149,6 @@ function App() {
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl glass flex items-center justify-center text-2xl">🦞</div>
               <div><h1 className="text-lg font-bold text-white">OpenClaw</h1><p className="text-xs text-gray-400">多实例监控</p></div>
             </div>
             <div className="flex items-center gap-3">
@@ -162,8 +164,8 @@ function App() {
                 {showMenu && (<>
                   <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)}></div>
                   <div className="absolute right-0 mt-2 w-48 dropdown-ios z-50 overflow-hidden animate-fade-in">
-                    <button onClick={() => { setShowPasswordModal(true); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm text-white hover:bg-white/10 transition-colors flex items-center gap-3">🔑 修改密码</button>
-                    <button onClick={handleLogout} className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-3 border-t border-white/10">🚪 退出登录</button>
+                    <button onClick={() => { setShowPasswordModal(true); setShowMenu(false); }} className="w-full px-4 py-3 text-left text-sm text-white hover:bg-white/10 transition-colors flex items-center gap-3">修改密码</button>
+                    <button onClick={handleLogout} className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-3 border-t border-white/10">退出登录</button>
                   </div>
                 </>)}
               </div>
@@ -175,7 +177,7 @@ function App() {
         <div className="glass rounded-xl p-1.5 inline-flex gap-1">
           {['overview', 'instances', 'logs', 'update', 'links'].map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab as any)} className={`tab-ios text-sm font-medium ${activeTab === tab ? 'tab-ios-active' : 'text-gray-400 hover:text-white'}`}>
-              {tab === 'overview' && '📊 概览'}{tab === 'instances' && '💻 实例'}{tab === 'logs' && '📋 日志'}{tab === 'update' && '🔄 更新'}{tab === 'links' && '🔗 官方'}
+              {tab === 'overview' && '概览'}{tab === 'instances' && '实例'}{tab === 'logs' && '日志'}{tab === 'update' && '更新'}{tab === 'links' && '官方'}
             </button>
           ))}
         </div>
@@ -188,7 +190,7 @@ function App() {
                 <div className="text-7xl mb-6">🌍</div>
                 <h3 className="text-2xl font-bold text-white mb-3">暂无监控实例</h3>
                 <p className="text-gray-400 mb-8 max-w-md mx-auto">添加您的 OpenClaw 实例，开始集中监控</p>
-                <button onClick={() => { setActiveTab('instances'); setShowAddForm(true) }} className="btn-ios-primary px-8 py-3.5 rounded-xl text-white font-medium shadow-lg hover:shadow-xl transition-all">➕ 添加第一个实例</button>
+                <button onClick={() => { setActiveTab('instances'); setShowAddForm(true) }} className="btn-ios-primary px-8 py-3.5 rounded-xl text-white font-medium shadow-lg hover:shadow-xl transition-all">添加第一个实例</button>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -205,8 +207,8 @@ function App() {
                     {instance.error && <p className="text-xs text-red-400 mb-4 bg-red-500/10 rounded-lg p-2.5 border border-red-500/20">{instance.error}</p>}
                     {instance.lastSeen && <p className="text-xs text-gray-500 mb-4">最后检查：{new Date(instance.lastSeen).toLocaleString('zh-CN')}</p>}
                     <div className="flex gap-2">
-                      <button onClick={() => handleRefreshInstance(instance.id)} className="flex-1 px-3 py-2.5 btn-ios text-xs font-medium text-white">🔄 刷新</button>
-                      <button onClick={() => handleDeleteInstance(instance.id)} className="flex-1 px-3 py-2.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl text-xs font-medium text-red-400 transition-all">🗑️ 删除</button>
+                      <button onClick={() => handleRefreshInstance(instance.id)} className="flex-1 px-3 py-2.5 btn-ios text-xs font-medium text-white">刷新</button>
+                      <button onClick={() => handleDeleteInstance(instance.id)} className="flex-1 px-3 py-2.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl text-xs font-medium text-red-400 transition-all">删除</button>
                     </div>
                   </div>
                 ))}
@@ -217,12 +219,12 @@ function App() {
         {activeTab === 'instances' && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2"><span>💻</span> OpenClaw 实例</h3>
-              <button onClick={() => setShowAddForm(!showAddForm)} className="btn-ios-primary px-4 py-2 rounded-xl text-sm font-medium shadow-lg">{showAddForm ? '✕ 取消' : '+ 添加实例'}</button>
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">OpenClaw 实例</h3>
+              <button onClick={() => setShowAddForm(!showAddForm)} className="btn-ios-primary px-4 py-2 rounded-xl text-sm font-medium shadow-lg">{showAddForm ? '取消' : '添加实例'}</button>
             </div>
             {showAddForm && (
               <div className="card-ios p-6 animate-fade-in">
-                <h4 className="font-semibold text-white mb-4 flex items-center gap-2"><span>➕</span> 添加新实例</h4>
+                <h4 className="font-semibold text-white mb-4">添加新实例</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div><label className="block text-sm text-gray-400 mb-2 ml-1">实例 ID *</label><input type="text" value={newInstance.id} onChange={(e) => setNewInstance({ ...newInstance, id: e.target.value })} className="w-full input-ios text-white" placeholder="home-server" /></div>
                   <div><label className="block text-sm text-gray-400 mb-2 ml-1">名称</label><input type="text" value={newInstance.name} onChange={(e) => setNewInstance({ ...newInstance, name: e.target.value })} className="w-full input-ios text-white" placeholder="家里服务器" /></div>
@@ -248,8 +250,8 @@ function App() {
                     {instance.error && <p className="text-xs text-red-400 mb-4 bg-red-500/10 rounded-lg p-2.5 border border-red-500/20">{instance.error}</p>}
                     {instance.lastSeen && <p className="text-xs text-gray-500 mb-4">最后检查：{new Date(instance.lastSeen).toLocaleString('zh-CN')}</p>}
                     <div className="flex gap-2">
-                      <button onClick={() => handleRefreshInstance(instance.id)} className="flex-1 px-3 py-2.5 btn-ios text-xs font-medium text-white">🔄 刷新</button>
-                      <button onClick={() => handleDeleteInstance(instance.id)} className="flex-1 px-3 py-2.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl text-xs font-medium text-red-400 transition-all">🗑️ 删除</button>
+                      <button onClick={() => handleRefreshInstance(instance.id)} className="flex-1 px-3 py-2.5 btn-ios text-xs font-medium text-white">刷新</button>
+                      <button onClick={() => handleDeleteInstance(instance.id)} className="flex-1 px-3 py-2.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl text-xs font-medium text-red-400 transition-all">删除</button>
                     </div>
                   </div>
                 ))}
@@ -260,8 +262,8 @@ function App() {
         {activeTab === 'logs' && (
           <div className="card-ios overflow-hidden">
             <div className="flex items-center justify-between p-4 border-b border-white/10">
-              <h3 className="font-medium text-white flex items-center gap-2"><span>📋</span> Gateway 日志</h3>
-              <button onClick={copyLogs} className="btn-ios px-3 py-1.5 text-sm text-white">📋 复制</button>
+              <h3 className="font-medium text-white flex items-center gap-2">Gateway 日志</h3>
+              <button onClick={copyLogs} className="btn-ios px-3 py-1.5 text-sm text-white">复制</button>
             </div>
             <pre className="p-4 text-sm text-gray-300 overflow-auto max-h-[600px] bg-black/20 font-mono">{logs || '暂无日志'}</pre>
           </div>
@@ -269,23 +271,23 @@ function App() {
         {activeTab === 'update' && (
           <div className="space-y-4">
             <div className="card-ios p-6">
-              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><span>📦</span> 版本信息</h3>
+              <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">版本信息</h3>
               <div className="space-y-3 divide-y divide-white/10">
                 <div className="flex justify-between py-2"><span className="text-gray-400">当前版本</span><span className="font-mono text-white">{versionInfo?.current}</span></div>
-                {versionInfo?.latest && (<><div className="flex justify-between py-2"><span className="text-gray-400">最新版本</span><span className="font-mono text-white">{versionInfo.latest.version}</span></div><div className="flex justify-between py-2"><span className="text-gray-400">更新可用</span><span className={versionInfo.updateAvailable ? 'text-green-400' : 'text-gray-400'}>{versionInfo.updateAvailable ? '✅ 是' : '❌ 否'}</span></div></>)}
+                {versionInfo?.latest && (<><div className="flex justify-between py-2"><span className="text-gray-400">最新版本</span><span className="font-mono text-white">{versionInfo.latest.version}</span></div><div className="flex justify-between py-2"><span className="text-gray-400">更新可用</span><span className={versionInfo.updateAvailable ? 'text-green-400' : 'text-gray-400'}>{versionInfo.updateAvailable ? '是' : '否'}</span></div></>)}
               </div>
             </div>
-            {versionInfo?.latest?.body && (<div className="card-ios p-6"><h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><span>📝</span> 更新日志</h3><pre className="whitespace-pre-wrap text-sm text-gray-300 bg-black/20 rounded-xl p-4 font-mono">{versionInfo.latest.body}</pre></div>)}
+            {versionInfo?.latest?.body && (<div className="card-ios p-6"><h3 className="text-lg font-bold text-white mb-4">更新日志</h3><pre className="whitespace-pre-wrap text-sm text-gray-300 bg-black/20 rounded-xl p-4 font-mono">{versionInfo.latest.body}</pre></div>)}
           </div>
         )}
         {activeTab === 'links' && officialLinks && (
           <div className="card-ios p-6">
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><span>🔗</span> 官方资源</h3>
+            <h3 className="text-lg font-bold text-white mb-4">官方资源</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <a href={officialLinks.github} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-4 glass rounded-xl hover:bg-white/10 transition-all"><span className="text-2xl">📂</span><div><p className="font-medium text-white">GitHub</p><p className="text-xs text-gray-400">源代码</p></div></a>
-              <a href={officialLinks.releases} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-4 glass rounded-xl hover:bg-white/10 transition-all"><span className="text-2xl">🏷️</span><div><p className="font-medium text-white">Releases</p><p className="text-xs text-gray-400">版本发布</p></div></a>
-              <a href={officialLinks.docs} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-4 glass rounded-xl hover:bg-white/10 transition-all"><span className="text-2xl">📖</span><div><p className="font-medium text-white">文档</p><p className="text-xs text-gray-400">使用指南</p></div></a>
-              <a href={officialLinks.discord} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-4 glass rounded-xl hover:bg-white/10 transition-all"><span className="text-2xl">💬</span><div><p className="font-medium text-white">Discord</p><p className="text-xs text-gray-400">社区</p></div></a>
+              <a href={officialLinks.github} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-4 glass rounded-xl hover:bg-white/10 transition-all"><div><p className="font-medium text-white">GitHub</p><p className="text-xs text-gray-400">源代码</p></div></a>
+              <a href={officialLinks.releases} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-4 glass rounded-xl hover:bg-white/10 transition-all"><div><p className="font-medium text-white">Releases</p><p className="text-xs text-gray-400">版本发布</p></div></a>
+              <a href={officialLinks.docs} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-4 glass rounded-xl hover:bg-white/10 transition-all"><div><p className="font-medium text-white">文档</p><p className="text-xs text-gray-400">使用指南</p></div></a>
+              <a href={officialLinks.discord} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-4 glass rounded-xl hover:bg-white/10 transition-all"><div><p className="font-medium text-white">Discord</p><p className="text-xs text-gray-400">社区</p></div></a>
             </div>
           </div>
         )}
@@ -293,7 +295,7 @@ function App() {
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowPasswordModal(false)}>
           <div className="modal-ios p-6 max-w-md w-full animate-fade-in" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">🔑 修改密码</h3>
+            <h3 className="text-xl font-bold text-white mb-6">修改密码</h3>
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div><label className="block text-sm text-gray-400 mb-2 ml-1">原密码</label><input type="password" value={passwordForm.oldPassword} onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })} className="w-full input-ios text-white" required /></div>
               <div><label className="block text-sm text-gray-400 mb-2 ml-1">新密码</label><input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} className="w-full input-ios text-white" minLength={6} required /></div>
@@ -306,7 +308,7 @@ function App() {
           </div>
         </div>
       )}
-      <footer className="border-t border-white/10 mt-12 py-6 text-center"><p className="text-gray-500 text-sm">🦞 OpenClaw 监控面板</p></footer>
+      <footer className="border-t border-white/10 mt-12 py-6 text-center"><p className="text-gray-500 text-sm">OpenClaw 监控面板</p></footer>
     </div>
   )
 }
