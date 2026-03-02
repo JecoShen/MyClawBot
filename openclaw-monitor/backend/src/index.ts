@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
-// 配置文件路径
+// 配置文件
 const CONFIG_FILE = path.join(__dirname, '../config.json');
 const DEFAULT_CONFIG = {
   enableAdminLogin: false,
@@ -24,16 +24,12 @@ const DEFAULT_CONFIG = {
   allowRegister: false
 };
 
-// 加载配置
 function loadConfig() {
   try {
     if (fs.existsSync(CONFIG_FILE)) {
-      const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
-      return { ...DEFAULT_CONFIG, ...JSON.parse(data) };
+      return { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) };
     }
-  } catch (err) {
-    console.error('Failed to load config:', err);
-  }
+  } catch (err) { console.error('Failed to load config:', err); }
   return DEFAULT_CONFIG;
 }
 
@@ -42,48 +38,10 @@ let config = loadConfig();
 app.use(cors());
 app.use(express.json());
 
-// 数据文件
-const DATA_FILE = path.join(__dirname, '../data.json');
-
 // 会话存储
 const sessions: Map<string, { username: string; loginAt: number }> = new Map();
 
-// 数据加载/保存
-interface UserData {
-  username: string;
-  passwordHash: string;
-  createdAt: number;
-}
-
-interface AppData {
-  user: UserData | null;
-}
-
-let appData: AppData = { user: null };
-
-async function loadData() {
-  try {
-    const { stdout } = await execAsync(`cat ${DATA_FILE} 2>/dev/null || echo '{}'`);
-    appData = JSON.parse(stdout.trim() || '{}');
-    if (!appData.user) appData = { user: null };
-    console.log('📦 数据已加载');
-  } catch (err) {
-    appData = { user: null };
-  }
-}
-
-async function saveData() {
-  try {
-    await execAsync(`echo '${JSON.stringify(appData, null, 2)}' > ${DATA_FILE}`);
-  } catch (err) { console.error('Failed to save data:', err); }
-}
-
-function hashPassword(password: string): string {
-  return crypto.createHash('sha256').update(password).digest('hex');
-}
-
-// ========== 实例配置 ==========
-
+// 实例配置
 interface MonitoredInstance {
   id: string;
   name: string;
@@ -94,19 +52,34 @@ interface MonitoredInstance {
   lastSeen?: number;
   ws?: WebSocket;
   reconnectAttempts: number;
+  metrics?: {
+    cpu?: number;
+    memory?: number;
+    disk?: number;
+    uptime?: string;
+  };
 }
 
 const instances: MonitoredInstance[] = [];
 const INSTANCES_FILE = path.join(__dirname, '../instances.json');
+const ERRORS_FILE = path.join(__dirname, '../errors.json');
 
-async function saveInstances() {
-  try {
-    const data = instances.map(i => ({ id: i.id, name: i.name, url: i.url, token: i.token || '' }));
-    await execAsync(`echo '${JSON.stringify(data, null, 2)}' > ${INSTANCES_FILE}`);
-  } catch (err) { console.error('Failed to save instances:', err); }
+// 错误日志存储
+interface ErrorLog {
+  id: string;
+  instanceId: string;
+  instanceName: string;
+  level: 'error' | 'warning' | 'info';
+  message: string;
+  context: string;
+  timestamp: number;
+  resolved: boolean;
 }
 
-async function loadInstances() {
+let errorLogs: ErrorLog[] = [];
+
+// 加载数据
+async function loadData() {
   try {
     const { stdout } = await execAsync(`cat ${INSTANCES_FILE} 2>/dev/null || echo '[]'`);
     const data = JSON.parse(stdout.trim() || '[]');
@@ -115,8 +88,29 @@ async function loadInstances() {
     });
     console.log(`📦 加载了 ${instances.length} 个监控实例`);
   } catch (err) { console.error('Failed to load instances:', err); }
+
+  try {
+    const { stdout } = await execAsync(`cat ${ERRORS_FILE} 2>/dev/null || echo '[]'`);
+    errorLogs = JSON.parse(stdout.trim() || '[]');
+    console.log(`📦 加载了 ${errorLogs.length} 条错误记录`);
+  } catch (err) { errorLogs = []; }
 }
 
+// 保存数据
+async function saveInstances() {
+  try {
+    const data = instances.map(({ id, name, url, token }) => ({ id, name, url, token: token || '' }));
+    await execAsync(`echo '${JSON.stringify(data, null, 2)}' > ${INSTANCES_FILE}`);
+  } catch (err) { console.error('Failed to save instances:', err); }
+}
+
+async function saveErrors() {
+  try {
+    await execAsync(`echo '${JSON.stringify(errorLogs, null, 2)}' > ${ERRORS_FILE}`);
+  } catch (err) { console.error('Failed to save errors:', err); }
+}
+
+// 检查实例状态
 function checkInstance(instance: MonitoredInstance): Promise<'online' | 'offline' | 'error'> {
   return new Promise((resolve) => {
     if (instance.ws) {
@@ -134,6 +128,7 @@ function checkInstance(instance: MonitoredInstance): Promise<'online' | 'offline
       ws.close();
       instance.status = 'offline';
       instance.error = '连接超时';
+      instance.lastSeen = Date.now();
       resolve('offline');
     }, 5000);
 
@@ -151,6 +146,22 @@ function checkInstance(instance: MonitoredInstance): Promise<'online' | 'offline
       instance.status = 'error';
       instance.error = err.message;
       instance.lastSeen = Date.now();
+      
+      // 记录错误
+      const errorLog: ErrorLog = {
+        id: crypto.randomBytes(8).toString('hex'),
+        instanceId: instance.id,
+        instanceName: instance.name,
+        level: 'error',
+        message: `WebSocket 连接失败：${err.message}`,
+        context: `目标地址：${instance.url}\n时间：${new Date().toISOString()}`,
+        timestamp: Date.now(),
+        resolved: false
+      };
+      errorLogs.unshift(errorLog);
+      if (errorLogs.length > 100) errorLogs.pop();
+      saveErrors();
+      
       resolve('error');
     });
 
@@ -164,25 +175,27 @@ function checkInstance(instance: MonitoredInstance): Promise<'online' | 'offline
   });
 }
 
+// 获取 GitHub 最新版本
 async function getLatestRelease() {
   try {
-    const headers: Record<string, string> = { 'Accept': 'application/vnd.github+json', 'User-Agent': 'OpenClaw-Monitor/1.0' };
+    const headers = { 'Accept': 'application/vnd.github+json', 'User-Agent': 'OpenClaw-Monitor/1.0' };
     const response = await fetch('https://api.github.com/repos/openclaw/openclaw/releases/latest', { headers });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     const data: any = await response.json();
-    return { version: data.tag_name || 'unknown', publishedAt: data.published_at, body: data.body || '', url: data.html_url };
+    return {
+      version: data.tag_name || 'unknown',
+      publishedAt: data.published_at,
+      body: data.body || '',
+      url: data.html_url
+    };
   } catch (err: any) {
     return { version: '获取失败', publishedAt: null, body: err.message, url: 'https://github.com/openclaw/openclaw/releases' };
   }
 }
 
-// ========== 认证中间件 ==========
-
+// 认证中间件
 function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
-  // 如果未启用管理员登录，直接放行
-  if (!config.enableAdminLogin) {
-    return next();
-  }
+  if (!config.enableAdminLogin) return next();
   
   const sessionId = req.headers['x-session-id'] as string;
   if (!sessionId || !sessions.has(sessionId)) {
@@ -201,44 +214,26 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
 app.get('/api/auth/status', async (req, res) => {
   const sessionId = req.headers['x-session-id'] as string;
   
-  // 检查是否已登录
   if (sessionId && sessions.has(sessionId)) {
     const session = sessions.get(sessionId)!;
     if (Date.now() - session.loginAt < 24 * 60 * 60 * 1000) {
-      return res.json({ 
-        hasUser: true, 
-        authenticated: true, 
-        username: session.username,
-        enableAdminLogin: config.enableAdminLogin
-      });
+      return res.json({ hasUser: true, authenticated: true, username: session.username, enableAdminLogin: config.enableAdminLogin });
     }
     sessions.delete(sessionId);
   }
   
-  // 返回登录状态
-  res.json({ 
-    hasUser: config.enableAdminLogin && config.adminUser && config.adminPass,
-    authenticated: false, 
-    allowRegister: false,
-    enableAdminLogin: config.enableAdminLogin
-  });
-});
-
-app.post('/api/auth/register', async (req, res) => {
-  res.status(403).json({ error: '注册已关闭' });
+  res.json({ hasUser: config.enableAdminLogin && config.adminUser && config.adminPass, authenticated: false, enableAdminLogin: config.enableAdminLogin });
 });
 
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   
-  // 检查是否启用了管理员登录
   if (!config.enableAdminLogin) {
-    return res.status(403).json({ error: '管理员登录未启用，请在 config.json 中设置 enableAdminLogin: true' });
+    return res.status(403).json({ error: '管理员登录未启用' });
   }
   
-  // 使用配置文件中的账号
   if (config.adminUser && config.adminPass) {
-    if (username !== config.adminUser || hashPassword(password) !== config.adminPass) {
+    if (username !== config.adminUser || crypto.createHash('sha256').update(password).digest('hex') !== config.adminPass) {
       return res.status(401).json({ error: '用户名或密码错误' });
     }
     const sessionId = crypto.randomBytes(32).toString('hex');
@@ -246,7 +241,7 @@ app.post('/api/auth/login', async (req, res) => {
     return res.json({ success: true, sessionId, username });
   }
   
-  return res.status(400).json({ error: '请先在 config.json 中配置管理员账号' });
+  res.status(400).json({ error: '请先在 config.json 中配置管理员账号' });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -255,54 +250,20 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
-app.get('/api/auth/check', (req, res) => {
-  const sessionId = req.headers['x-session-id'] as string;
-  if (sessionId && sessions.has(sessionId)) {
-    const session = sessions.get(sessionId)!;
-    if (Date.now() - session.loginAt < 24 * 60 * 60 * 1000) {
-      return res.json({ authenticated: true, username: session.username });
-    }
-    sessions.delete(sessionId);
-  }
-  res.json({ authenticated: false });
-});
+// ========== 监控路由 ==========
 
-app.post('/api/auth/change-password', requireAuth, async (req, res) => {
-  const { oldPassword, newPassword } = req.body;
-  
-  // 如果使用配置文件，不允许在线修改密码
-  if (config.enableAdminLogin && config.adminUser && config.adminPass) {
-    return res.status(403).json({ error: '配置文件模式下，请直接在 config.json 中修改密码' });
-  }
-  
-  if (!appData.user) {
-    return res.status(400).json({ error: '用户不存在' });
-  }
-  
-  const oldPasswordHash = hashPassword(oldPassword);
-  if (oldPasswordHash !== appData.user.passwordHash) {
-    return res.status(401).json({ error: '原密码错误' });
-  }
-  
-  appData.user.passwordHash = hashPassword(newPassword);
-  await saveData();
-  
-  res.json({ success: true });
-});
-
-// ========== API 路由 ==========
-
+// 获取所有实例状态
 app.get('/api/instances', requireAuth, async (req, res) => {
   await Promise.all(instances.map(inst => checkInstance(inst)));
-  res.json(instances.map(i => ({ id: i.id, name: i.name, url: i.url, status: i.status, error: i.error, lastSeen: i.lastSeen })));
+  res.json(instances.map(({ id, name, url, status, error, lastSeen, metrics }) => ({ id, name, url, status, error, lastSeen, metrics })));
 });
 
+// 添加实例
 app.post('/api/instances', requireAuth, async (req, res) => {
   const { id, name, url, token } = req.body;
   if (!id || !url) return res.status(400).json({ error: '实例 ID 和 WebSocket 地址是必填项' });
   
-  const existing = instances.find(i => i.id === id);
-  if (existing) return res.status(400).json({ error: '实例已存在' });
+  if (instances.find(i => i.id === id)) return res.status(400).json({ error: '实例已存在' });
 
   const instance: MonitoredInstance = { id, name: name || id, url, token: token || '', status: 'offline', reconnectAttempts: 0 };
   await checkInstance(instance);
@@ -311,36 +272,56 @@ app.post('/api/instances', requireAuth, async (req, res) => {
   res.json(instance);
 });
 
+// 删除实例
 app.delete('/api/instances/:id', requireAuth, async (req, res) => {
   const index = instances.findIndex(i => i.id === req.params.id);
   if (index === -1) return res.status(404).json({ error: '实例不存在' });
   
-  const instance = instances[index];
-  if (instance.ws) instance.ws.close();
-  
+  if (instances[index].ws) instances[index].ws.close();
   instances.splice(index, 1);
   await saveInstances();
   res.json({ success: true });
 });
 
+// 刷新单个实例状态
 app.get('/api/instances/:id/status', requireAuth, async (req, res) => {
   const instance = instances.find(i => i.id === req.params.id);
   if (!instance) return res.status(404).json({ error: '实例不存在' });
   await checkInstance(instance);
-  res.json({ id: instance.id, name: instance.name, url: instance.url, status: instance.status, error: instance.error, lastSeen: instance.lastSeen });
+  res.json({ id: instance.id, name: instance.name, url: instance.url, status: instance.status, error: instance.error, lastSeen: instance.lastSeen, metrics: instance.metrics });
 });
 
-app.get('/api/version/latest', requireAuth, async (req, res) => {
+// 获取错误日志
+app.get('/api/errors', requireAuth, async (req, res) => {
+  const resolved = req.query.resolved === 'true';
+  const filtered = errorLogs.filter(e => e.resolved === resolved);
+  res.json(filtered);
+});
+
+// 标记错误为已解决
+app.post('/api/errors/:id/resolve', requireAuth, async (req, res) => {
+  const error = errorLogs.find(e => e.id === req.params.id);
+  if (!error) return res.status(404).json({ error: '错误记录不存在' });
+  error.resolved = true;
+  await saveErrors();
+  res.json({ success: true });
+});
+
+// 获取版本信息
+app.get('/api/version', requireAuth, async (req, res) => {
   const release = await getLatestRelease();
   res.json({ current: 'N/A (远程监控)', latest: release, updateAvailable: release.version !== '获取失败' });
 });
 
-app.get('/api/logs', requireAuth, async (req, res) => {
-  res.json({ logs: '-- 日志功能需要实例支持 --\n\n提示：可以在各 OpenClaw 实例上查看本地日志' });
-});
-
+// 获取官方链接
 app.get('/api/links', requireAuth, (req, res) => {
-  res.json({ github: 'https://github.com/openclaw/openclaw', releases: 'https://github.com/openclaw/openclaw/releases', docs: 'https://docs.openclaw.ai', discord: 'https://discord.com/invite/clawd', clawhub: 'https://clawhub.com' });
+  res.json({
+    github: 'https://github.com/openclaw/openclaw',
+    releases: 'https://github.com/openclaw/openclaw/releases',
+    docs: 'https://docs.openclaw.ai',
+    discord: 'https://discord.com/invite/clawd',
+    clawhub: 'https://clawhub.com'
+  });
 });
 
 // ========== 静态文件服务 ==========
@@ -352,30 +333,26 @@ app.get('*', (req, res) => { res.sendFile(path.join(__dirname, '../../frontend/d
 
 async function start() {
   await loadData();
-  await loadInstances();
   
   app.listen(PORT, '0.0.0.0', () => {
     console.log('');
-    console.log('🦞 OpenClaw 监控面板 已启动');
+    console.log('🦞 OpenClaw Monitor 已启动');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📡 端口：${PORT}`);
     console.log(`🌐 公网：https://3001-organic-spoon-xjprjrg46wq3v6xw.app.github.dev`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     if (config.enableAdminLogin) {
       console.log('🔐 管理员登录已启用');
-      if (config.adminUser && config.adminPass) {
-        console.log('✅ 管理员账号已配置');
-      } else {
-        console.log('⚠️  警告：未配置 adminUser 和 adminPass');
-      }
     } else {
       console.log('🔓 管理员登录未启用（无需登录即可访问）');
-      console.log('💡 如需启用，请编辑 config.json：{ "enableAdminLogin": true }');
     }
     console.log('');
   });
   
-  setInterval(async () => { await Promise.all(instances.map(inst => checkInstance(inst))); }, 30000);
+  // 每 30 秒自动检查所有实例
+  setInterval(async () => {
+    await Promise.all(instances.map(inst => checkInstance(inst)));
+  }, 30000);
 }
 
 start();
